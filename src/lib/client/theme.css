@@ -1,0 +1,70 @@
+/* dbtool dark theme — SqlDBM-inspired deep navy palette */
+:root {
+	--bg: #0f1523;
+	--bg-alt: #121a2c;
+	--panel: #151c2c;
+	--panel2: #1d2639;
+	--border: #232e45;
+	--border-strong: #2e3c5b;
+	--grid-line: #1d2740;
+	--line-hl: rgba(61, 126, 255, 0.06);
+	--sel-bg: #24406e;
+	--text: #c7d2e4;
+	--head-text: #dde6f6;
+	--muted: #77839c;
+	--accent: #3d7eff;
+	--accent-hover: #5a92ff;
+	--error: #ff6b6b;
+	--warn: #e8b45e;
+	--ok: #58c98b;
+	--null-text: #a89f6b;
+	--mono: 'Cascadia Code', 'Cascadia Mono', Consolas, 'Courier New', monospace;
+	--sans: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+html,
+body {
+	margin: 0;
+	height: 100%;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--sans);
+	overflow: hidden;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+::-webkit-scrollbar-track {
+	background: transparent;
+}
+::-webkit-scrollbar-thumb {
+	background: #2a354f;
+	border-radius: 5px;
+	border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover {
+	background: #354263;
+}
+::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+select {
+	background: var(--panel2);
+	color: var(--text);
+	border: 1px solid var(--border);
+	border-radius: 6px;
+	font-size: 12.5px;
+	padding: 4px 8px;
+	outline: none;
+	max-width: 220px;
+}
+select:focus {
+	border-color: var(--accent);
+}

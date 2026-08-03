@@ -1,0 +1,8 @@
+main_task:
+  description: |
+    Respond helpfully to this user input:
+
+    {user_query}
+  expected_out: |
+    A clear, useful reply.
+  agent: assistant

@@ -1,0 +1,7 @@
+{
+  "nacelle-core": {
+    "path": "packages/core",
+    "ref": "main",
+    "commit": "21dadebf72459c05138e3ca44b753953b97ccfd3"
+  }
+}
