@@ -5,8 +5,15 @@
 	import Explorer from '$lib/client/Explorer.svelte';
 	import Editor from '$lib/client/Editor.svelte';
 	import ResultsPanel from '$lib/client/ResultsPanel.svelte';
+	import AskModal from '$lib/client/AskModal.svelte';
 
 	let editorRef: Editor | undefined = $state();
+	let askOpen = $state(false);
+
+	function appendSql(sql: string) {
+		if (app.activeSheet) editorRef?.appendText(sql);
+		else void app.newSheet({ sql });
+	}
 
 	// layout
 	let explorerW = $state(290);
@@ -130,6 +137,14 @@
 				<button class="run-btn cancel" onclick={() => app.cancel(sheet.id)}>■ Cancel</button>
 			{/if}
 		{/if}
+		<span class="top-spacer"></span>
+		<button
+			class="ask-btn"
+			onclick={() => (askOpen = true)}
+			title="Ask general SQL Server questions (no database context)"
+		>
+			✦ Ask
+		</button>
 	</header>
 
 	<div class="body">
@@ -201,6 +216,10 @@
 			</div>
 		</main>
 	</div>
+
+	{#if askOpen}
+		<AskModal scope="general" onAppendSql={appendSql} onClose={() => (askOpen = false)} />
+	{/if}
 
 	<footer class="statusbar">
 		{#if app.activeSheet}
@@ -278,6 +297,23 @@
 		background: transparent;
 		border: 1px solid var(--error);
 		color: var(--error);
+	}
+	.top-spacer {
+		flex: 1;
+	}
+	.ask-btn {
+		background: var(--panel2);
+		border: 1px solid var(--border-strong);
+		border-radius: 6px;
+		color: var(--text);
+		font-size: 12.5px;
+		font-weight: 600;
+		padding: 5px 14px;
+		cursor: pointer;
+	}
+	.ask-btn:hover {
+		border-color: var(--accent);
+		color: var(--accent);
 	}
 	.body {
 		display: flex;

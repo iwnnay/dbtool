@@ -3,37 +3,59 @@
 		role: 'user' | 'assistant';
 		content: string;
 	}
+	export type AskScope = 'general' | 'database' | 'table';
 	// Chat history survives closing/reopening the modal within a session.
 	const histories = new Map<string, Msg[]>();
+
+	function historyKey(scope: AskScope, server: string, database: string, schema: string, table: string) {
+		if (scope === 'general') return 'general';
+		if (scope === 'table') return `table|${server}|${database}|${schema}|${table}`;
+		return `database|${server}|${database}`;
+	}
 </script>
 
 <script lang="ts">
 	import Modal from './Modal.svelte';
-	import { api, type DatamapStatus } from './api';
+	import { api, type DatamapStatus, type OllamaStatus } from './api';
 
 	let {
-		server,
-		database,
+		scope = 'database',
+		server = '',
+		database = '',
+		schema = '',
+		table = '',
 		onClose,
 		onAppendSql
 	}: {
-		server: string;
-		database: string;
+		scope?: AskScope;
+		server?: string;
+		database?: string;
+		schema?: string;
+		table?: string;
 		onClose: () => void;
 		onAppendSql: (sql: string) => void;
 	} = $props();
 
-	const histKey = $derived(`${server}|${database}`);
+	const histKey = $derived(historyKey(scope, server, database, schema, table));
 	// svelte-ignore state_referenced_locally -- modal is recreated per open; initial read is intentional
-	let messages = $state<Msg[]>(histories.get(`${server}|${database}`) ?? []);
+	let messages = $state<Msg[]>(histories.get(historyKey(scope, server, database, schema, table)) ?? []);
 	let input = $state('');
 	let streaming = $state(false);
 	let status = $state<DatamapStatus | null>(null);
+	let ollama = $state<OllamaStatus | null>(null);
 	let scroller: HTMLDivElement | undefined = $state();
+
+	const needsDatamap = $derived(scope === 'database');
+	const ready = $derived(needsDatamap ? !!status?.exists : true);
 
 	async function refreshStatus() {
 		try {
-			status = await api.datamapStatus(server, database);
+			if (needsDatamap) {
+				status = await api.datamapStatus(server, database);
+				ollama = status.ollama;
+			} else {
+				ollama = (await api.askStatus()).ollama;
+			}
 		} catch {
 			// leave stale status
 		}
@@ -75,7 +97,14 @@
 			const res = await fetch('/api/db/ask', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ server, database, messages: messages.slice(0, -1) })
+				body: JSON.stringify({
+					scope,
+					server,
+					database,
+					schema,
+					table,
+					messages: messages.slice(0, -1)
+				})
 			});
 			if (!res.ok || !res.body) {
 				throw new Error(await res.text().catch(() => `${res.status}`));
@@ -119,19 +148,45 @@
 			? Math.round((status.job.done / status.job.total) * 100)
 			: null
 	);
+
+	const title = $derived(
+		scope === 'general'
+			? 'Ask — SQL Server'
+			: scope === 'table'
+				? `Ask — ${schema}.${table}`
+				: `Ask — ${database}`
+	);
+
+	const placeholder = $derived(
+		scope === 'general'
+			? 'Ask anything about SQL Server or T-SQL…'
+			: scope === 'table'
+				? `Ask about ${schema}.${table}…`
+				: !status?.exists
+					? 'Build the datamap first ↑'
+					: status?.job?.running
+						? 'Ask about this database… (datamap build in progress — answers will queue behind it)'
+						: 'Ask about this database…'
+	);
 </script>
 
-<Modal title="Ask — {database}" width={760} {onClose}>
+<Modal {title} width={760} {onClose}>
 	<div class="ask">
 		<div class="status">
-			{#if !status}
-				<span class="muted">Checking datamap…</span>
+			{#if !ollama}
+				<span class="muted">Checking…</span>
+			{:else if !ollama.ok}
+				<span class="bad" title={ollama.error}>⚠ Ollama unreachable ({ollama.model})</span>
 			{:else}
-				{#if !status.ollama.ok}
-					<span class="bad" title={status.ollama.error}>⚠ Ollama unreachable ({status.ollama.model})</span>
-				{:else}
-					<span class="muted">{status.ollama.model}</span>
-				{/if}
+				<span class="muted">{ollama.model}</span>
+			{/if}
+			{#if scope === 'general'}
+				<span class="sep">·</span>
+				<span class="muted">no database context — general SQL Server questions only</span>
+			{:else if scope === 'table'}
+				<span class="sep">·</span>
+				<span class="muted">context: {schema}.{table} in {database} — columns, keys, indexes, relationships</span>
+			{:else if status}
 				<span class="sep">·</span>
 				{#if status.job?.running}
 					<span class="accent">
@@ -166,9 +221,19 @@
 		<div class="chat" bind:this={scroller}>
 			{#if messages.length === 0}
 				<div class="empty">
-					Ask about {database} in plain English — e.g. <em>"find all patients with a last name
-					starting with zzz and an ICD code of I50.9"</em> — and get runnable T-SQL grounded in
-					the datamap.
+					{#if scope === 'general'}
+						Ask anything about SQL Server itself — e.g. <em>"what's the difference between a
+						clustered and a nonclustered index?"</em> or <em>"how do I read a key lookup in an
+						execution plan?"</em> No schema is loaded, so answers are generic T-SQL.
+					{:else if scope === 'table'}
+						Ask about <em>{schema}.{table}</em> — e.g. <em>"what does each column mean?"</em>,
+						<em>"write a query for the 100 most recent rows"</em> or <em>"which tables join to
+						this one?"</em> Only this table's definition is loaded.
+					{:else}
+						Ask about {database} in plain English — e.g. <em>"find all patients with a last name
+						starting with zzz and an ICD code of I50.9"</em> — and get runnable T-SQL grounded in
+						the datamap.
+					{/if}
 				</div>
 			{/if}
 			{#each messages as m, i (i)}
@@ -198,13 +263,9 @@
 
 		<div class="composer">
 			<textarea
-				placeholder={!status?.exists
-					? 'Build the datamap first ↑'
-					: status?.job?.running
-						? 'Ask about this database… (datamap build in progress — answers will queue behind it)'
-						: 'Ask about this database…'}
+				{placeholder}
 				bind:value={input}
-				disabled={streaming || !status?.exists}
+				disabled={streaming || !ready}
 				rows="2"
 				onkeydown={(e) => {
 					if (e.key === 'Enter' && !e.shiftKey) {
@@ -213,7 +274,7 @@
 					}
 				}}
 			></textarea>
-			<button class="send" onclick={send} disabled={streaming || !input.trim() || !status?.exists}>
+			<button class="send" onclick={send} disabled={streaming || !input.trim() || !ready}>
 				{streaming ? '…' : 'Send'}
 			</button>
 		</div>

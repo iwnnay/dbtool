@@ -64,6 +64,12 @@ export interface DatamapJob {
 	error?: string;
 }
 
+export interface OllamaStatus {
+	ok: boolean;
+	model: string;
+	error?: string;
+}
+
 export interface DatamapStatus {
 	exists: boolean;
 	generatedAt: string | null;
@@ -71,7 +77,7 @@ export interface DatamapStatus {
 	describedCount: number;
 	stale: { stale: number; total: number } | null;
 	job: DatamapJob | null;
-	ollama: { ok: boolean; model: string; error?: string };
+	ollama: OllamaStatus;
 }
 
 export interface DbProperties {
@@ -141,6 +147,7 @@ export const api = {
 			method: 'POST',
 			body: JSON.stringify({ server, database, force })
 		}),
+	askStatus: () => req<{ ollama: OllamaStatus }>('/api/db/ask'),
 	properties: (server: string, database: string) =>
 		req<{ properties: DbProperties }>(
 			`/api/db/properties?server=${encodeURIComponent(server)}&database=${encodeURIComponent(database)}`

@@ -1,52 +1,118 @@
+import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
-import { chatStream, type ChatMessage } from '$lib/server/ollama';
+import { FlowService, FlowCancelled, bindCancelSignal, runWithStreamFunnel } from 'nacelle-core/server';
 import { loadDatamap, buildAskContext } from '$lib/server/db/datamap';
+import { tableDetail, formatTableContext } from '$lib/server/db/meta';
+import { askModelStatus } from '$lib/server/llm/model';
 
-const SYSTEM = (ctx: string, database: string) =>
-	`You are a SQL Server expert writing queries against the ${database} database. The catalog below lists its real tables and columns.
+export type AskScope = 'general' | 'database' | 'table';
 
-Rules:
-- Only reference tables and columns that exist in the catalog. If something needed is not there, say so instead of inventing it.
-- Schema-qualify names (dbo.Table). Use COUNT_BIG(*) for counts.
-- When asked for a query, give runnable T-SQL in a \`\`\`sql block and briefly explain the joins.
-- Prefer the smallest set of tables that answers the question. Be concise.
+interface AskMessage {
+	role: 'system' | 'user' | 'assistant';
+	content: string;
+}
 
-=== SCHEMA CONTEXT ===
-${ctx}
-=== END SCHEMA CONTEXT ===`;
+const FLOW_BY_SCOPE: Record<AskScope, string> = {
+	general: 'ask_general_flow',
+	database: 'ask_database_flow',
+	table: 'ask_table_flow'
+};
 
-export const POST: RequestHandler = async ({ request }) => {
-	const body = (await request.json().catch(() => null)) as {
-		server: string;
-		database: string;
-		messages: ChatMessage[];
-	} | null;
-	if (!body?.server || !body?.database || !Array.isArray(body.messages)) {
-		return new Response('server, database, messages required', { status: 400 });
+interface AskBody {
+	scope?: AskScope;
+	server?: string;
+	database?: string;
+	schema?: string;
+	table?: string;
+	messages: AskMessage[];
+}
+
+export const GET: RequestHandler = async () => json({ ollama: await askModelStatus() });
+
+interface AskRun {
+	flowName: string;
+	inputs: Record<string, unknown>;
+}
+
+async function resolveRun(body: AskBody): Promise<AskRun> {
+	const scope = body.scope ?? 'database';
+	const flowName = FLOW_BY_SCOPE[scope];
+	const history = body.messages.filter((message) => message.role !== 'system').slice(-20);
+	const userQuery =
+		[...history].reverse().find((message) => message.role === 'user')?.content ?? '';
+	const base = { user_query: userQuery, history };
+
+	if (scope === 'general') return { flowName, inputs: base };
+
+	if (!body.server || !body.database) {
+		throw new Error(`server and database are required for a ${scope}-scoped ask`);
+	}
+
+	if (scope === 'table') {
+		if (!body.schema || !body.table) {
+			throw new Error('schema and table are required for a table-scoped ask');
+		}
+		const detail = await tableDetail(body.server, body.database, body.schema, body.table);
+		const description = loadDatamap(body.server, body.database)?.tables[
+			`${body.schema}.${body.table}`
+		]?.description;
+		return {
+			flowName,
+			inputs: {
+				...base,
+				database: body.database,
+				table: `${detail.schema}.${detail.name}`,
+				context: formatTableContext(body.server, body.database, detail, description)
+			}
+		};
 	}
 
 	const map = loadDatamap(body.server, body.database);
 	if (!map) {
-		return new Response('No datamap for this database yet — build it first.', { status: 409 });
+		throw new Error(
+			`No datamap for ${body.database} on ${body.server} yet — build it first from the database's Ask window`
+		);
+	}
+	return {
+		flowName,
+		inputs: {
+			...base,
+			database: body.database,
+			context: buildAskContext(map, userQuery)
+		}
+	};
+}
+
+export const POST: RequestHandler = async ({ request }) => {
+	const body = (await request.json().catch(() => null)) as AskBody | null;
+	if (!body || !Array.isArray(body.messages)) {
+		return new Response('messages required', { status: 400 });
 	}
 
-	const history = body.messages.filter((m) => m.role !== 'system').slice(-20);
-	const lastUser = [...history].reverse().find((m) => m.role === 'user')?.content ?? '';
-	const messages: ChatMessage[] = [
-		{ role: 'system', content: SYSTEM(buildAskContext(map, lastUser), body.database) },
-		...history
-	];
+	let run: AskRun;
+	try {
+		run = await resolveRun(body);
+	} catch (caught) {
+		return new Response((caught as Error).message, { status: 409 });
+	}
 
 	const stream = new ReadableStream<Uint8Array>({
 		async start(controller) {
-			const enc = new TextEncoder();
+			const encoder = new TextEncoder();
+			let closed = false;
+			const enqueue = (text: string) => {
+				if (!closed) controller.enqueue(encoder.encode(text));
+			};
 			try {
-				for await (const delta of chatStream(messages)) {
-					controller.enqueue(enc.encode(delta));
+				await bindCancelSignal(request.signal, () =>
+					runWithStreamFunnel(enqueue, () => new FlowService().run(run.flowName, run.inputs))
+				);
+			} catch (caught) {
+				if (!(caught instanceof FlowCancelled)) {
+					enqueue(`\n\n[error: ${(caught as Error).message}]`);
 				}
-			} catch (e) {
-				controller.enqueue(enc.encode(`\n\n[error: ${(e as Error).message}]`));
 			} finally {
+				closed = true;
 				controller.close();
 			}
 		}

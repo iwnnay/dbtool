@@ -33,7 +33,7 @@
 	}
 	let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
 	let modal = $state<
-		| (TableRef & { kind: 'insert' | 'columns' | 'properties' })
+		| (TableRef & { kind: 'insert' | 'columns' | 'properties' | 'askTable' })
 		| { kind: 'ask' | 'ignore'; server: string; db: string }
 		| null
 	>(null);
@@ -163,6 +163,7 @@
 						sql: `SELECT TOP (1000) *\nFROM ${bracket(t.schema)}.${bracket(t.table)};\n`
 					})
 			},
+			{ label: 'Ask about this table…', action: () => (modal = { ...t, kind: 'askTable' }) },
 			{ label: 'Insert row…', action: () => (modal = { ...t, kind: 'insert' }) },
 			{ label: 'Show columns', action: () => (modal = { ...t, kind: 'columns' }) },
 			{ label: 'Show properties', action: () => (modal = { ...t, kind: 'properties' }) },
@@ -374,7 +375,23 @@
 {/if}
 
 {#if modal?.kind === 'ask'}
-	<AskModal server={modal.server} database={modal.db} {onAppendSql} onClose={() => (modal = null)} />
+	<AskModal
+		scope="database"
+		server={modal.server}
+		database={modal.db}
+		{onAppendSql}
+		onClose={() => (modal = null)}
+	/>
+{:else if modal?.kind === 'askTable'}
+	<AskModal
+		scope="table"
+		server={modal.server}
+		database={modal.db}
+		schema={modal.schema}
+		table={modal.table}
+		{onAppendSql}
+		onClose={() => (modal = null)}
+	/>
 {:else if modal?.kind === 'ignore'}
 	<IgnoreModal server={modal.server} database={modal.db} onClose={() => (modal = null)} />
 {:else if modal?.kind === 'insert'}

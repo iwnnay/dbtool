@@ -1,7 +1,7 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { loadDatamap, jobStatus, startGenerate, checkStale } from '$lib/server/db/datamap';
-import { ollamaStatus } from '$lib/server/ollama';
+import { askModelStatus } from '$lib/server/llm/model';
 
 /** Datamap status for a database; ?check=1 also probes schema staleness. */
 export const GET: RequestHandler = async ({ url }) => {
@@ -26,7 +26,7 @@ export const GET: RequestHandler = async ({ url }) => {
 		describedCount: tables.filter((t) => t.description).length,
 		stale,
 		job: jobStatus(server, database),
-		ollama: await ollamaStatus()
+		ollama: await askModelStatus()
 	});
 };
 

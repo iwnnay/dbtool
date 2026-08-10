@@ -1,13 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!-- Tower -->
-  <path d="M14.8 16.5 L14 30 L18 30 L17.2 16.5Z" fill="#94a3b8"/>
-  <line x1="12" y1="30" x2="20" y2="30" stroke="#64748b" stroke-width="1.2" stroke-linecap="round"/>
-  <!-- Blade 1 (up) -->
-  <path d="M16 12 Q18.2 7 16 1.5 Q13.8 7 16 12Z" fill="#3b82f6"/>
-  <!-- Blade 2 (lower-right) -->
-  <path d="M16 12 Q18.2 7 16 1.5 Q13.8 7 16 12Z" fill="#60a5fa" transform="rotate(120 16 12.5)"/>
-  <!-- Blade 3 (lower-left) -->
-  <path d="M16 12 Q18.2 7 16 1.5 Q13.8 7 16 12Z" fill="#2563eb" transform="rotate(240 16 12.5)"/>
-  <!-- Hub -->
-  <circle cx="16" cy="12.5" r="2.2" fill="#1e3a5f"/>
+  <!-- Cylinder body -->
+  <path d="M5 7 V25 a11 4.5 0 0 0 22 0 V7 Z" fill="#94a3b8"/>
+  <!-- Disc separator bands -->
+  <path d="M5 13 a11 4.5 0 0 0 22 0" fill="none" stroke="#3b82f6" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M5 19 a11 4.5 0 0 0 22 0" fill="none" stroke="#3b82f6" stroke-width="2.2" stroke-linecap="round"/>
+  <!-- Top lid -->
+  <ellipse cx="16" cy="7" rx="11" ry="4.5" fill="#2563eb"/>
+  <ellipse cx="16" cy="6.4" rx="8.2" ry="3" fill="#60a5fa"/>
 </svg>

@@ -137,6 +137,231 @@ export async function listColumns(
 	}));
 }
 
+export interface IndexInfo {
+	name: string;
+	type: string;
+	unique: boolean;
+	primaryKey: boolean;
+	keyColumns: string;
+	includedColumns: string | null;
+}
+
+export interface OutboundForeignKey {
+	name: string;
+	columns: string;
+	referencedTable: string;
+	referencedColumns: string;
+}
+
+export interface InboundForeignKey {
+	name: string;
+	childTable: string;
+	childColumns: string;
+	columns: string;
+}
+
+export interface TableDetail {
+	schema: string;
+	name: string;
+	objectType: string;
+	rowCount: number | null;
+	columns: ColumnInfo[];
+	indexes: IndexInfo[];
+	foreignKeys: OutboundForeignKey[];
+	referencedBy: InboundForeignKey[];
+}
+
+export async function tableDetail(
+	server: string,
+	database: string,
+	schema: string,
+	table: string
+): Promise<TableDetail> {
+	const db = bracket(database);
+	const fullName = quote(`${bracket(database)}.${bracket(schema)}.${bracket(table)}`);
+	const res = await metaQuery(
+		server,
+		`DECLARE @objectId int = OBJECT_ID(${fullName});
+
+		 SELECT o.type_desc, s.name, o.name,
+		        (SELECT TOP 1 p.rows FROM ${db}.sys.partitions p
+		         WHERE p.object_id = o.object_id AND p.index_id IN (0, 1))
+		 FROM ${db}.sys.objects o
+		 JOIN ${db}.sys.schemas s ON s.schema_id = o.schema_id
+		 WHERE o.object_id = @objectId;
+
+		 SELECT c.name, t.name, c.max_length, c.precision, c.scale, c.is_nullable, c.is_identity,
+		        c.is_computed, CASE WHEN pk.column_id IS NOT NULL THEN 1 ELSE 0 END
+		 FROM ${db}.sys.columns c
+		 JOIN ${db}.sys.types t ON c.user_type_id = t.user_type_id
+		 LEFT JOIN (
+		   SELECT ic.object_id, ic.column_id
+		   FROM ${db}.sys.index_columns ic
+		   JOIN ${db}.sys.indexes i
+		     ON i.object_id = ic.object_id AND i.index_id = ic.index_id AND i.is_primary_key = 1
+		 ) pk ON pk.object_id = c.object_id AND pk.column_id = c.column_id
+		 WHERE c.object_id = @objectId
+		 ORDER BY c.column_id;
+
+		 SELECT ix.name, ix.type_desc, ix.is_unique, ix.is_primary_key, keyCols.cols, includedCols.cols
+		 FROM ${db}.sys.indexes ix
+		 OUTER APPLY (SELECT STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY ic.key_ordinal) AS cols
+		              FROM ${db}.sys.index_columns ic
+		              JOIN ${db}.sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+		              WHERE ic.object_id = ix.object_id AND ic.index_id = ix.index_id
+		                AND ic.is_included_column = 0) keyCols
+		 OUTER APPLY (SELECT STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY ic.index_column_id) AS cols
+		              FROM ${db}.sys.index_columns ic
+		              JOIN ${db}.sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+		              WHERE ic.object_id = ix.object_id AND ic.index_id = ix.index_id
+		                AND ic.is_included_column = 1) includedCols
+		 WHERE ix.object_id = @objectId AND ix.type > 0
+		 ORDER BY ix.is_primary_key DESC, ix.name;
+
+		 SELECT fk.name, parentCols.cols, refSchema.name + '.' + refTable.name, refCols.cols
+		 FROM ${db}.sys.foreign_keys fk
+		 JOIN ${db}.sys.tables refTable ON refTable.object_id = fk.referenced_object_id
+		 JOIN ${db}.sys.schemas refSchema ON refSchema.schema_id = refTable.schema_id
+		 OUTER APPLY (SELECT STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY fkc.constraint_column_id) AS cols
+		              FROM ${db}.sys.foreign_key_columns fkc
+		              JOIN ${db}.sys.columns c ON c.object_id = fkc.parent_object_id
+		                AND c.column_id = fkc.parent_column_id
+		              WHERE fkc.constraint_object_id = fk.object_id) parentCols
+		 OUTER APPLY (SELECT STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY fkc.constraint_column_id) AS cols
+		              FROM ${db}.sys.foreign_key_columns fkc
+		              JOIN ${db}.sys.columns c ON c.object_id = fkc.referenced_object_id
+		                AND c.column_id = fkc.referenced_column_id
+		              WHERE fkc.constraint_object_id = fk.object_id) refCols
+		 WHERE fk.parent_object_id = @objectId
+		 ORDER BY fk.name;
+
+		 SELECT fk.name, childSchema.name + '.' + childTable.name, childCols.cols, ownCols.cols
+		 FROM ${db}.sys.foreign_keys fk
+		 JOIN ${db}.sys.tables childTable ON childTable.object_id = fk.parent_object_id
+		 JOIN ${db}.sys.schemas childSchema ON childSchema.schema_id = childTable.schema_id
+		 OUTER APPLY (SELECT STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY fkc.constraint_column_id) AS cols
+		              FROM ${db}.sys.foreign_key_columns fkc
+		              JOIN ${db}.sys.columns c ON c.object_id = fkc.parent_object_id
+		                AND c.column_id = fkc.parent_column_id
+		              WHERE fkc.constraint_object_id = fk.object_id) childCols
+		 OUTER APPLY (SELECT STRING_AGG(c.name, ', ') WITHIN GROUP (ORDER BY fkc.constraint_column_id) AS cols
+		              FROM ${db}.sys.foreign_key_columns fkc
+		              JOIN ${db}.sys.columns c ON c.object_id = fkc.referenced_object_id
+		                AND c.column_id = fkc.referenced_column_id
+		              WHERE fkc.constraint_object_id = fk.object_id) ownCols
+		 WHERE fk.referenced_object_id = @objectId
+		 ORDER BY fk.name;`
+	);
+
+	const identity = res.resultSets?.[0]?.rows?.[0];
+	if (!identity) {
+		throw new Error(
+			`Table ${schema}.${table} not found in ${database} on ${server} — it may have been dropped or renamed`
+		);
+	}
+
+	return {
+		schema: String(identity[1]),
+		name: String(identity[2]),
+		objectType: String(identity[0]),
+		rowCount: identity[3] == null ? null : Number(identity[3]),
+		columns: (res.resultSets?.[1]?.rows ?? []).map((row) => ({
+			name: String(row[0]),
+			type: String(row[1]),
+			maxLength: Number(row[2]),
+			precision: Number(row[3]),
+			scale: Number(row[4]),
+			nullable: row[5] === true,
+			identity: row[6] === true,
+			computed: row[7] === true,
+			isPk: row[8] === 1
+		})),
+		indexes: (res.resultSets?.[2]?.rows ?? []).map((row) => ({
+			name: row[0] == null ? '(unnamed)' : String(row[0]),
+			type: String(row[1]),
+			unique: row[2] === true,
+			primaryKey: row[3] === true,
+			keyColumns: row[4] == null ? '' : String(row[4]),
+			includedColumns: row[5] == null ? null : String(row[5])
+		})),
+		foreignKeys: (res.resultSets?.[3]?.rows ?? []).map((row) => ({
+			name: String(row[0]),
+			columns: row[1] == null ? '' : String(row[1]),
+			referencedTable: String(row[2]),
+			referencedColumns: row[3] == null ? '' : String(row[3])
+		})),
+		referencedBy: (res.resultSets?.[4]?.rows ?? []).map((row) => ({
+			name: String(row[0]),
+			childTable: String(row[1]),
+			childColumns: row[2] == null ? '' : String(row[2]),
+			columns: row[3] == null ? '' : String(row[3])
+		}))
+	};
+}
+
+const MAX_INBOUND_KEYS = 60;
+
+export function formatTableContext(
+	server: string,
+	database: string,
+	detail: TableDetail,
+	description?: string
+): string {
+	const lines: string[] = [
+		`# ${detail.objectType === 'VIEW' ? 'View' : 'Table'}: ${detail.schema}.${detail.name}`,
+		`Database: ${database} on ${server}`
+	];
+	if (detail.rowCount != null) lines.push(`Rows: ${detail.rowCount.toLocaleString()}`);
+	if (description) lines.push(`Description: ${description}`);
+
+	lines.push('', '## Columns', 'Format: name type [NULL|NOT NULL] flags');
+	for (const column of detail.columns) {
+		const flags = [
+			column.isPk ? 'PRIMARY KEY' : '',
+			column.identity ? 'IDENTITY' : '',
+			column.computed ? 'COMPUTED' : ''
+		].filter(Boolean);
+		lines.push(
+			`${column.name} ${formatType(column)} ${column.nullable ? 'NULL' : 'NOT NULL'}` +
+				(flags.length ? ` ${flags.join(' ')}` : '')
+		);
+	}
+
+	if (detail.indexes.length > 0) {
+		lines.push('', '## Indexes');
+		for (const index of detail.indexes) {
+			const tags = [
+				index.type,
+				index.unique ? 'UNIQUE' : '',
+				index.primaryKey ? 'PRIMARY KEY' : ''
+			].filter(Boolean);
+			lines.push(
+				`${index.name} (${tags.join(', ')}): ${index.keyColumns}` +
+					(index.includedColumns ? ` INCLUDE (${index.includedColumns})` : '')
+			);
+		}
+	}
+
+	if (detail.foreignKeys.length > 0) {
+		lines.push('', `## Foreign keys (${detail.schema}.${detail.name} references)`);
+		for (const key of detail.foreignKeys) {
+			lines.push(`${key.columns} -> ${key.referencedTable}(${key.referencedColumns})  [${key.name}]`);
+		}
+	}
+
+	if (detail.referencedBy.length > 0) {
+		lines.push('', `## Referenced by (tables pointing at ${detail.schema}.${detail.name})`);
+		for (const key of detail.referencedBy.slice(0, MAX_INBOUND_KEYS)) {
+			lines.push(`${key.childTable}(${key.childColumns}) -> ${key.columns}  [${key.name}]`);
+		}
+		if (detail.referencedBy.length > MAX_INBOUND_KEYS) {
+			lines.push(`… and ${detail.referencedBy.length - MAX_INBOUND_KEYS} more referencing tables`);
+		}
+	}
+
+	return lines.join('\n');
+}
+
 export interface ColumnSearchHit {
 	name: string;
 	count: number;

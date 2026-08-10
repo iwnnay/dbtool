@@ -12,9 +12,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { env } from '$env/dynamic/private';
+import { FlowService } from 'nacelle-core/server';
 import { ensureBridge } from './bridgeManager';
 import { ignoreSet, isIgnored } from '../ignore';
-import { chat } from '../ollama';
 
 const DATAMAP_DIR = path.resolve(process.cwd(), 'data', 'datamaps');
 
@@ -129,26 +129,17 @@ export async function checkStale(
 	return { stale, total: snap.length };
 }
 
-const DESCRIBE_SYSTEM = `You write one-line descriptions of SQL Server tables for a "datamap" that helps an LLM pick the right tables when writing queries.
-
-For EACH table in the input, output exactly one line:
-schema.TableName: <what one row represents and what the table is used for>
-
-Rules:
-- Infer meaning from the table and column names. Be specific and concise (max ~25 words).
-- Output ONLY those lines, one per input table, same order, no preamble, no markdown.`;
-
 async function describeBatch(tables: DatamapTable[]): Promise<Map<string, string>> {
 	const input = tables
 		.map((t) => `${t.schema}.${t.name} [${t.rowCount} rows]${t.pk ? ` PK(${t.pk})` : ''}: ${t.columns}`)
 		.join('\n');
-	const out = await chat(
-		[
-			{ role: 'system', content: DESCRIBE_SYSTEM },
-			{ role: 'user', content: input }
-		],
-		{ temperature: 0.15 }
+	const run = await new FlowService().run(
+		'describe_tables_flow',
+		{ tables: input },
+		null,
+		{ record: false }
 	);
+	const out = run.raw;
 	const byKey = new Map<string, string>();
 	for (const line of out.split('\n')) {
 		const m = line.match(/^\s*[-*]?\s*`?([\w]+\.[\w$ ]+?)`?\s*:\s*(.+)$/);

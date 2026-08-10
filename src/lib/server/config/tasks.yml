@@ -1,8 +1,78 @@
-main_task:
+describe_tables:
   description: |
-    Respond helpfully to this user input:
+    Write a one-line description of each SQL Server table listed below, for a
+    "datamap" that helps another model pick the right tables when writing
+    queries.
 
-    {user_query}
+    For EACH table in the input, output exactly one line:
+    schema.TableName: what one row represents and what the table is used for
+
+    Rules:
+    - Infer meaning from the table and column names. Be specific and concise
+      (max ~25 words).
+    - Output ONLY those lines, one per input table, in the same order, with no
+      preamble and no markdown.
+
+    === TABLES ===
+    {tables}
+    === END TABLES ===
   expected_out: |
-    A clear, useful reply.
-  agent: assistant
+    One line per input table, in input order, each formatted as
+    schema.TableName: description
+  agent: schema_cataloguer
+
+ask_general:
+  description: |
+    Answer the user's general Microsoft SQL Server question in the conversation
+    that follows.
+
+    Rules:
+    - Only answer questions about Microsoft SQL Server / T-SQL. If asked about
+      anything else, say that you only cover SQL Server and stop. Other database
+      engines may be mentioned only to contrast them with SQL Server.
+    - You are not connected to any database and have no schema. Never invent
+      table or column names. If a question depends on a specific schema, say so
+      and answer generically with clearly-placeholder names.
+  expected_out: |
+    A concise answer. Any T-SQL goes in a ```sql code block.
+  agent: sql_expert
+
+ask_database:
+  description: |
+    Answer questions and write T-SQL against the {database} database. The
+    catalog below lists its real tables and columns.
+
+    Rules:
+    - Only reference tables and columns that exist in the catalog. If something
+      needed is not there, say so instead of inventing it.
+    - Schema-qualify names (dbo.Table). Use COUNT_BIG(*) for counts.
+    - Prefer the smallest set of tables that answers the question.
+
+    === SCHEMA CONTEXT ===
+    {context}
+    === END SCHEMA CONTEXT ===
+  expected_out: |
+    A concise answer. Runnable T-SQL in a ```sql code block, plus a brief note on
+    how the tables join.
+  agent: sql_expert
+
+ask_table:
+  description: |
+    Answer questions about one table: {table} in the {database} database. Its
+    full definition — columns, keys, indexes and foreign key relationships — is
+    below, and it is the only schema you have.
+
+    Rules:
+    - Only reference columns that appear in the definition below. If something
+      needed is not there, say so instead of inventing it.
+    - Related tables are known only by name and by the joining columns of their
+      foreign keys. You do not have their other columns, so do not guess at them.
+    - Schema-qualify names (dbo.Table). Use COUNT_BIG(*) for counts.
+
+    === TABLE CONTEXT ===
+    {context}
+    === END TABLE CONTEXT ===
+  expected_out: |
+    A concise answer. Runnable T-SQL in a ```sql code block, plus a brief
+    explanation.
+  agent: sql_expert

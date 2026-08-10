@@ -2,6 +2,6 @@
   "nacelle-core": {
     "path": "packages/core",
     "ref": "main",
-    "commit": "21dadebf72459c05138e3ca44b753953b97ccfd3"
+    "commit": "3227c08bc09cf8f97672f273d3005fa5e1c40ad3"
   }
 }
