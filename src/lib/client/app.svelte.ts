@@ -2,14 +2,20 @@
  * Central client state (Svelte 5 runes). One instance for the whole app:
  * sheets + active tab, per-sheet run results, and the registered servers.
  */
-import { api, type RunResponse, type Sheet } from './api';
+import { api, type RunResponse, type Sheet, type SqlResultSet } from './api';
+
+export interface ResultTab {
+	id: number;
+	label: string;
+	title: string;
+	resultSet: SqlResultSet;
+	pinned: boolean;
+}
 
 export interface SheetRun {
 	running: boolean;
 	startedAt: number;
 	result: RunResponse | null;
-	/** Which results tab is selected (index into resultSets, or -1 = Messages). */
-	activeResult: number;
 }
 
 const STACKED_KEY = 'dbtool.stackedResults';
@@ -32,7 +38,24 @@ class App {
 	stackedResults = $state(loadStacked());
 	resultsView = $state<'results' | 'messages'>('results');
 	completedRuns = $state(0);
+	resultTabs = $state<Record<string, ResultTab[]>>({});
+	activeTabId = $state<Record<string, number | null>>({});
+	private nextTabId = 1;
 	private flashTimer: ReturnType<typeof setTimeout> | null = null;
+
+	renameTab(sheetId: string, tabId: number, label: string): void {
+		const trimmed = label.trim();
+		if (!trimmed) return;
+		this.resultTabs[sheetId] = (this.resultTabs[sheetId] ?? []).map((tab) =>
+			tab.id === tabId ? { ...tab, label: trimmed } : tab
+		);
+	}
+
+	togglePin(sheetId: string, tabId: number): void {
+		this.resultTabs[sheetId] = (this.resultTabs[sheetId] ?? []).map((tab) =>
+			tab.id === tabId ? { ...tab, pinned: !tab.pinned } : tab
+		);
+	}
 
 	toggleStackedResults(): void {
 		this.stackedResults = !this.stackedResults;
@@ -97,6 +120,8 @@ class App {
 		await api.deleteSheet(id);
 		this.sheets = this.sheets.filter((s) => s.id !== id);
 		delete this.runs[id];
+		delete this.resultTabs[id];
+		delete this.activeTabId[id];
 		if (this.activeSheetId === id) {
 			this.activeSheetId = this.sheets[Math.max(0, idx - 1)]?.id ?? null;
 		}
@@ -119,7 +144,6 @@ class App {
 			this.runs[sheet.id] = {
 				running: false,
 				startedAt: Date.now(),
-				activeResult: -1,
 				result: {
 					ok: false,
 					resultSets: [],
@@ -133,7 +157,7 @@ class App {
 		}
 		this.setSheetSql(sheet.id, fullSql);
 		const token = Date.now();
-		this.runs[sheet.id] = { running: true, startedAt: token, result: null, activeResult: 0 };
+		this.runs[sheet.id] = { running: true, startedAt: token, result: null };
 		let result: RunResponse;
 		try {
 			result = await api.run({
@@ -157,13 +181,20 @@ class App {
 		// don't clobber it with a stale response.
 		const cur = this.runs[sheet.id];
 		if (!cur?.running || cur.startedAt !== token) return;
-		this.runs[sheet.id] = {
-			running: false,
-			startedAt: token,
-			result,
-			activeResult: result.resultSets.length > 0 ? 0 : -1
-		};
-		this.resultsView = result.resultSets.length > 0 ? 'results' : 'messages';
+		this.runs[sheet.id] = { running: false, startedAt: token, result };
+
+		const ranAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+		const kept = (this.resultTabs[sheet.id] ?? []).filter((tab) => tab.pinned);
+		const fresh = result.resultSets.map((resultSet, index) => ({
+			id: this.nextTabId++,
+			label: `Results ${result.resultSets.length > 1 ? index + 1 : ''}`.trim(),
+			title: `${sheet.name} · ${sheet.database} · ${ranAt}`,
+			resultSet,
+			pinned: false
+		}));
+		this.resultTabs[sheet.id] = [...kept, ...fresh];
+		this.activeTabId[sheet.id] = fresh[0]?.id ?? kept[0]?.id ?? null;
+		this.resultsView = fresh.length > 0 ? 'results' : 'messages';
 		this.completedRuns++;
 	}
 
@@ -174,7 +205,6 @@ class App {
 			this.runs[sheetId] = {
 				...run,
 				running: false,
-				activeResult: -1,
 				result: {
 					ok: false,
 					resultSets: [],

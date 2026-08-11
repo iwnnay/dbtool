@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { app } from './app.svelte';
+	import { app, type ResultTab } from './app.svelte';
 	import type { Sheet, SqlResultSet } from './api';
+	import ContextMenu, { type MenuItem } from './ContextMenu.svelte';
 	import Grid from './Grid.svelte';
 	import MessagesPanel from './MessagesPanel.svelte';
 	import { copyTsv, exportXlsx } from './export';
@@ -8,16 +9,16 @@
 	let { sheet, onAppendSql }: { sheet: Sheet; onAppendSql: (sql: string) => void } = $props();
 
 	const showingMessages = $derived(app.resultsView === 'messages');
-
 	const run = $derived(app.runs[sheet.id] ?? null);
 	const result = $derived(run?.result ?? null);
-	const active = $derived(run?.activeResult ?? -1);
-	const activeRs = $derived(result && active >= 0 ? (result.resultSets[active] ?? null) : null);
-	const resultSets = $derived(result?.resultSets ?? []);
 	const stacked = $derived(app.stackedResults);
-	const totalRows = $derived(
-		resultSets.reduce((total, resultSet) => total + resultSet.rowCount, 0)
+	const tabs = $derived(app.resultTabs[sheet.id] ?? []);
+	const activeTab = $derived(
+		tabs.find((tab) => tab.id === app.activeTabId[sheet.id]) ?? tabs[0] ?? null
 	);
+	const activeRs = $derived(activeTab?.resultSet ?? null);
+	const totalRows = $derived(tabs.reduce((total, tab) => total + tab.resultSet.rowCount, 0));
+	const canStack = $derived(tabs.length > 1);
 
 	// live elapsed while running
 	let now = $state(Date.now());
@@ -35,9 +36,35 @@
 		setTimeout(() => (copied = ''), 1200);
 	}
 
-	function selectTab(index: number) {
+	function selectTab(tabId: number) {
 		app.resultsView = 'results';
-		if (run) app.runs[sheet.id] = { ...run, activeResult: index };
+		app.activeTabId[sheet.id] = tabId;
+	}
+
+	let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
+	let renamingTabId = $state<number | null>(null);
+	let renameValue = $state('');
+
+	function startRename(tab: ResultTab) {
+		renameValue = tab.label;
+		renamingTabId = tab.id;
+	}
+
+	function commitRename() {
+		if (renamingTabId !== null) app.renameTab(sheet.id, renamingTabId, renameValue);
+		renamingTabId = null;
+	}
+
+	function openTabMenu(event: MouseEvent, tab: ResultTab) {
+		event.preventDefault();
+		menu = {
+			x: event.clientX,
+			y: event.clientY,
+			items: [
+				{ label: 'Rename…', action: () => startRename(tab) },
+				{ label: tab.pinned ? 'Unpin' : 'Pin', action: () => app.togglePin(sheet.id, tab.id) }
+			]
+		};
 	}
 
 	function fmtMs(ms: number): string {
@@ -57,30 +84,55 @@
 		</div>
 	{:else}
 		<div class="tabbar">
-			{#if result}
-				{#if stacked && resultSets.length}
+			{#if stacked && tabs.length}
+				<button class="tab" class:active={!showingMessages} onclick={() => selectTab(tabs[0].id)}>
+					All results {tabs.length > 1 ? `(${tabs.length})` : ''}
+					<span class="count">{totalRows.toLocaleString()}</span>
+				</button>
+			{:else}
+				{#each tabs as tab (tab.id)}
+					{#if renamingTabId === tab.id}
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							class="tab-rename"
+							bind:value={renameValue}
+							autofocus
+							onblur={commitRename}
+							onkeydown={(event) => {
+								if (event.key === 'Enter') commitRename();
+								if (event.key === 'Escape') renamingTabId = null;
+							}}
+						/>
+					{:else}
 					<button
 						class="tab"
-						class:active={!showingMessages && active !== -1}
-						onclick={() => selectTab(0)}
+						class:active={!showingMessages && activeTab?.id === tab.id}
+						onclick={() => selectTab(tab.id)}
+						oncontextmenu={(event) => openTabMenu(event, tab)}
+						ondblclick={() => startRename(tab)}
+						title="{tab.title} — right-click to rename"
 					>
-						All results {resultSets.length > 1 ? `(${resultSets.length})` : ''}
-						<span class="count">{totalRows.toLocaleString()}</span>
+						<span
+							class="pin"
+							class:on={tab.pinned}
+							role="button"
+							tabindex="0"
+							title={tab.pinned ? 'Unpin' : 'Pin'}
+							onclick={(event) => {
+								event.stopPropagation();
+								app.togglePin(sheet.id, tab.id);
+							}}
+							onkeydown={(event) => {
+								if (event.key === 'Enter') app.togglePin(sheet.id, tab.id);
+							}}
+						>📌</span>
+						{tab.label}
+						<span class="count">
+							{tab.resultSet.rowCount.toLocaleString()}{tab.resultSet.truncated ? '+' : ''}
+						</span>
 					</button>
-				{:else}
-					{#each resultSets as resultSet, index (index)}
-						<button
-							class="tab"
-							class:active={!showingMessages && active === index}
-							onclick={() => selectTab(index)}
-						>
-							Results {resultSets.length > 1 ? index + 1 : ''}
-							<span class="count">
-								{resultSet.rowCount.toLocaleString()}{resultSet.truncated ? '+' : ''}
-							</span>
-						</button>
-					{/each}
-				{/if}
+					{/if}
+				{/each}
 			{/if}
 			<button
 				class="tab"
@@ -93,8 +145,8 @@
 				{#if result && (result.messages.length || result.error)}<span class="count">{result.messages.length + (result.error ? 1 : 0)}</span>{/if}
 			</button>
 			<div class="spacer"></div>
-			{#if !showingMessages && result}
-			{#if resultSets.length > 1}
+			{#if !showingMessages && tabs.length}
+			{#if canStack}
 				<button
 					class="btn"
 					onclick={() => app.toggleStackedResults()}
@@ -121,11 +173,14 @@
 					{copied === 'hdr' ? '✓ Copied' : 'Copy + Headers'}
 				</button>
 			{/if}
-			{#if resultSets.length}
+			{#if tabs.length}
 				<button
 					class="btn"
-					onclick={() => exportXlsx(resultSets, `${sheet.name}-${sheet.database}`)}
-					title="Download all result sets as .xlsx"
+					onclick={() => exportXlsx(
+						tabs.map((tab) => tab.resultSet),
+						`${sheet.name}-${sheet.database}`
+					)}
+					title="Download every open result set as .xlsx"
 				>
 					Export Excel
 				</button>
@@ -135,47 +190,63 @@
 
 		{#if showingMessages}
 			<MessagesPanel {onAppendSql} />
-		{:else if !result}
-			<div class="center-note hint">
-				<span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> run statement at cursor · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> run all</span>
-			</div>
-		{:else if stacked && resultSets.length}
+		{:else if stacked && tabs.length}
 			<div class="stacked">
-				{#each resultSets as resultSet, index (index)}
+				{#each tabs as tab (tab.id)}
 					<section class="stacked-set">
 						<header class="stacked-head">
-							<span class="stacked-title">
-								Results {resultSets.length > 1 ? index + 1 : ''}
-							</span>
+							<span
+								class="pin"
+								class:on={tab.pinned}
+								role="button"
+								tabindex="0"
+								title={tab.pinned ? 'Unpin' : 'Pin'}
+								onclick={() => app.togglePin(sheet.id, tab.id)}
+								onkeydown={(event) => {
+									if (event.key === 'Enter') app.togglePin(sheet.id, tab.id);
+								}}
+							>📌</span>
+							<span
+							class="stacked-title"
+							role="button"
+							tabindex="0"
+							title="Right-click to rename"
+							oncontextmenu={(event) => openTabMenu(event, tab)}
+							ondblclick={() => startRename(tab)}
+						>{tab.label}</span>
 							<span class="count">
-								{resultSet.rowCount.toLocaleString()}{resultSet.truncated ? '+' : ''}
+								{tab.resultSet.rowCount.toLocaleString()}{tab.resultSet.truncated ? '+' : ''}
 							</span>
-							{#if resultSet.truncated}
+							{#if tab.resultSet.truncated}
 								<span class="warn-inline">
-									showing first {resultSet.rows.length.toLocaleString()}
+									showing first {tab.resultSet.rows.length.toLocaleString()}
 								</span>
 							{/if}
 							<span class="spacer"></span>
 							<button
 								class="btn"
-								onclick={() => copy(resultSet, false, `${index}:plain`)}
+								onclick={() => copy(tab.resultSet, false, `${tab.id}:plain`)}
 								title="Copy this result set as TSV"
 							>
-								{copied === `${index}:plain` ? '✓ Copied' : 'Copy'}
+								{copied === `${tab.id}:plain` ? '✓ Copied' : 'Copy'}
 							</button>
 							<button
 								class="btn"
-								onclick={() => copy(resultSet, true, `${index}:headers`)}
+								onclick={() => copy(tab.resultSet, true, `${tab.id}:headers`)}
 								title="Copy this result set as TSV with headers"
 							>
-								{copied === `${index}:headers` ? '✓ Copied' : '+ Headers'}
+								{copied === `${tab.id}:headers` ? '✓ Copied' : '+ Headers'}
 							</button>
 						</header>
 						<div class="stacked-grid">
-							<Grid rs={resultSet} />
+							<Grid rs={tab.resultSet} />
 						</div>
 					</section>
 				{/each}
+			</div>
+		{:else if !result}
+			<div class="center-note hint">
+				<span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> run statement at cursor · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> run all</span>
 			</div>
 		{:else if activeRs}
 			{#if activeRs.truncated}
@@ -188,6 +259,10 @@
 		{/if}
 	{/if}
 </div>
+
+{#if menu}
+	<ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => (menu = null)} />
+{/if}
 
 <style>
 	.results {
@@ -254,6 +329,40 @@
 	}
 	.tab.err {
 		color: var(--error);
+	}
+	.pin {
+		font-size: 10px;
+		line-height: 1;
+		opacity: 0;
+		filter: grayscale(1);
+		transition: opacity 0.1s;
+		cursor: pointer;
+	}
+	.tab:hover .pin,
+	.stacked-head:hover .pin {
+		opacity: 0.55;
+	}
+	.pin:hover {
+		opacity: 1 !important;
+		filter: none;
+	}
+	.pin.on {
+		opacity: 1;
+		filter: none;
+	}
+	.tab-rename {
+		background: var(--bg);
+		border: 1px solid var(--accent);
+		border-radius: 4px;
+		color: var(--text);
+		font-size: 12px;
+		padding: 3px 6px;
+		margin: 2px;
+		width: 130px;
+		outline: none;
+	}
+	.stacked-title {
+		cursor: default;
 	}
 	.tab .count {
 		background: var(--panel2);
