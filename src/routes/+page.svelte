@@ -7,10 +7,12 @@
 	import ResultsPanel from '$lib/client/ResultsPanel.svelte';
 	import AskModal from '$lib/client/AskModal.svelte';
 	import ShortcutsModal from '$lib/client/ShortcutsModal.svelte';
+	import SheetsModal from '$lib/client/SheetsModal.svelte';
 
 	let editorRef: Editor | undefined = $state();
 	let askOpen = $state(false);
 	let shortcutsOpen = $state(false);
+	let sheetsOpen = $state(false);
 
 	function appendSql(sql: string) {
 		if (app.activeSheet) editorRef?.appendText(sql);
@@ -201,6 +203,11 @@
 					</div>
 				{/each}
 				<button class="new-tab" title="New query sheet" onclick={() => app.newSheet()}>+</button>
+				<button
+					class="new-tab"
+					title="Open a saved sheet"
+					onclick={() => (sheetsOpen = true)}
+				>🗀</button>
 			</div>
 
 			<div class="editor-pane">
@@ -225,6 +232,10 @@
 
 	{#if shortcutsOpen}
 		<ShortcutsModal onClose={() => (shortcutsOpen = false)} />
+	{/if}
+
+	{#if sheetsOpen}
+		<SheetsModal onClose={() => (sheetsOpen = false)} />
 	{/if}
 
 	<footer class="statusbar">

@@ -30,6 +30,7 @@ export interface Sheet {
 	position: number;
 	createdAt: string;
 	updatedAt: string;
+	open: boolean;
 }
 
 export interface DatabaseInfo {
@@ -192,6 +193,7 @@ export const api = {
 			body: JSON.stringify({ sheetId })
 		}),
 	sheets: () => req<{ sheets: Sheet[] }>('/api/sheets'),
+	savedSheets: () => req<{ sheets: Sheet[] }>('/api/sheets?all=1'),
 	createSheet: (partial: Partial<Sheet>) =>
 		req<{ sheet: Sheet }>('/api/sheets', { method: 'POST', body: JSON.stringify(partial) }),
 	updateSheet: (id: string, patch: Partial<Sheet>) =>

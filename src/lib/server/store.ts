@@ -64,6 +64,11 @@ export interface Sheet {
 	position: number;
 	createdAt: string;
 	updatedAt: string;
+	open: boolean;
+}
+
+function normalize(stored: Partial<Sheet>): Sheet {
+	return { ...(stored as Sheet), open: stored.open !== false };
 }
 
 function sheetPath(id: string): string {
@@ -72,23 +77,24 @@ function sheetPath(id: string): string {
 	return path.join(SHEETS_DIR, `${id}.json`);
 }
 
-export function listSheets(): Sheet[] {
+export function listSheets(options: { includeClosed?: boolean } = {}): Sheet[] {
 	ensureDirs();
 	const sheets: Sheet[] = [];
 	for (const f of fs.readdirSync(SHEETS_DIR)) {
 		if (!f.endsWith('.json')) continue;
 		try {
-			sheets.push(JSON.parse(fs.readFileSync(path.join(SHEETS_DIR, f), 'utf-8')));
+			sheets.push(normalize(JSON.parse(fs.readFileSync(path.join(SHEETS_DIR, f), 'utf-8'))));
 		} catch {
 			// skip corrupt file
 		}
 	}
-	return sheets.sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
+	const visible = options.includeClosed ? sheets : sheets.filter((sheet) => sheet.open);
+	return visible.sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
 }
 
 export function getSheet(id: string): Sheet | null {
 	try {
-		return JSON.parse(fs.readFileSync(sheetPath(id), 'utf-8'));
+		return normalize(JSON.parse(fs.readFileSync(sheetPath(id), 'utf-8')));
 	} catch {
 		return null;
 	}
@@ -106,7 +112,8 @@ export function createSheet(partial: Partial<Sheet>): Sheet {
 		sql: partial.sql ?? '',
 		position: existing.length ? Math.max(...existing.map((s) => s.position)) + 1 : 0,
 		createdAt: now,
-		updatedAt: now
+		updatedAt: now,
+		open: true
 	};
 	fs.writeFileSync(sheetPath(sheet.id), JSON.stringify(sheet, null, '\t'));
 	return sheet;
@@ -122,7 +129,7 @@ function nextName(existing: Sheet[]): string {
 
 export function updateSheet(id: string, patch: Partial<Sheet>): Sheet {
 	const p = sheetPath(id);
-	const sheet: Sheet = JSON.parse(fs.readFileSync(p, 'utf-8'));
+	const sheet: Sheet = normalize(JSON.parse(fs.readFileSync(p, 'utf-8')));
 	const updated: Sheet = {
 		...sheet,
 		...patch,

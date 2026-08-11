@@ -116,16 +116,36 @@ class App {
 	}
 
 	async closeSheet(id: string): Promise<void> {
-		const idx = this.sheets.findIndex((s) => s.id === id);
+		await api.updateSheet(id, { open: false }).catch(() => {});
+		this.forgetSheet(id);
+		if (this.sheets.length === 0) await this.newSheet();
+	}
+
+	async deleteSheet(id: string): Promise<void> {
 		await api.deleteSheet(id);
-		this.sheets = this.sheets.filter((s) => s.id !== id);
+		this.forgetSheet(id);
+		if (this.sheets.length === 0) await this.newSheet();
+	}
+
+	async openSavedSheet(sheet: Sheet): Promise<void> {
+		if (this.sheets.some((open) => open.id === sheet.id)) {
+			this.activeSheetId = sheet.id;
+			return;
+		}
+		const { sheet: reopened } = await api.updateSheet(sheet.id, { open: true });
+		this.sheets = [...this.sheets, reopened];
+		this.activeSheetId = reopened.id;
+	}
+
+	private forgetSheet(id: string): void {
+		const index = this.sheets.findIndex((sheet) => sheet.id === id);
+		this.sheets = this.sheets.filter((sheet) => sheet.id !== id);
 		delete this.runs[id];
 		delete this.resultTabs[id];
 		delete this.activeTabId[id];
 		if (this.activeSheetId === id) {
-			this.activeSheetId = this.sheets[Math.max(0, idx - 1)]?.id ?? null;
+			this.activeSheetId = this.sheets[Math.max(0, index - 1)]?.id ?? null;
 		}
-		if (this.sheets.length === 0) await this.newSheet();
 	}
 
 	/** Patch a sheet locally and persist it (used for rename / connection change). */
