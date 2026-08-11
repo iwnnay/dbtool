@@ -1,15 +1,23 @@
 <script lang="ts">
 	import { app } from './app.svelte';
-	import type { Sheet } from './api';
+	import type { Sheet, SqlResultSet } from './api';
 	import Grid from './Grid.svelte';
+	import MessagesPanel from './MessagesPanel.svelte';
 	import { copyTsv, exportXlsx } from './export';
 
-	let { sheet }: { sheet: Sheet } = $props();
+	let { sheet, onAppendSql }: { sheet: Sheet; onAppendSql: (sql: string) => void } = $props();
+
+	const showingMessages = $derived(app.resultsView === 'messages');
 
 	const run = $derived(app.runs[sheet.id] ?? null);
 	const result = $derived(run?.result ?? null);
 	const active = $derived(run?.activeResult ?? -1);
 	const activeRs = $derived(result && active >= 0 ? (result.resultSets[active] ?? null) : null);
+	const resultSets = $derived(result?.resultSets ?? []);
+	const stacked = $derived(app.stackedResults);
+	const totalRows = $derived(
+		resultSets.reduce((total, resultSet) => total + resultSet.rowCount, 0)
+	);
 
 	// live elapsed while running
 	let now = $state(Date.now());
@@ -20,15 +28,16 @@
 	});
 
 	let copied = $state('');
-	async function copy(withHeaders: boolean) {
-		if (!activeRs) return;
-		await copyTsv(activeRs, withHeaders);
-		copied = withHeaders ? 'hdr' : 'plain';
+	async function copy(resultSet: SqlResultSet | null, withHeaders: boolean, copyToken: string) {
+		if (!resultSet) return;
+		await copyTsv(resultSet, withHeaders);
+		copied = copyToken;
 		setTimeout(() => (copied = ''), 1200);
 	}
 
-	function selectTab(i: number) {
-		if (run) app.runs[sheet.id] = { ...run, activeResult: i };
+	function selectTab(index: number) {
+		app.resultsView = 'results';
+		if (run) app.runs[sheet.id] = { ...run, activeResult: index };
 	}
 
 	function fmtMs(ms: number): string {
@@ -46,59 +55,127 @@
 			<span>Executing… {fmtMs(now - run.startedAt)}</span>
 			<button class="btn danger" onclick={() => app.cancel(sheet.id)}>Cancel</button>
 		</div>
-	{:else if !result}
-		<div class="center-note hint">
-			<span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> run statement at cursor · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> run all</span>
-		</div>
 	{:else}
 		<div class="tabbar">
-			{#each result.resultSets as rs, i (i)}
-				<button class="tab" class:active={active === i} onclick={() => selectTab(i)}>
-					Results {result.resultSets.length > 1 ? i + 1 : ''}
-					<span class="count">{rs.rowCount.toLocaleString()}{rs.truncated ? '+' : ''}</span>
-				</button>
-			{/each}
-			<button class="tab" class:active={active === -1} class:err={!result.ok} onclick={() => selectTab(-1)}>
+			{#if result}
+				{#if stacked && resultSets.length}
+					<button
+						class="tab"
+						class:active={!showingMessages && active !== -1}
+						onclick={() => selectTab(0)}
+					>
+						All results {resultSets.length > 1 ? `(${resultSets.length})` : ''}
+						<span class="count">{totalRows.toLocaleString()}</span>
+					</button>
+				{:else}
+					{#each resultSets as resultSet, index (index)}
+						<button
+							class="tab"
+							class:active={!showingMessages && active === index}
+							onclick={() => selectTab(index)}
+						>
+							Results {resultSets.length > 1 ? index + 1 : ''}
+							<span class="count">
+								{resultSet.rowCount.toLocaleString()}{resultSet.truncated ? '+' : ''}
+							</span>
+						</button>
+					{/each}
+				{/if}
+			{/if}
+			<button
+				class="tab"
+				class:active={showingMessages}
+				class:err={result ? !result.ok : false}
+				onclick={() => (app.resultsView = 'messages')}
+				title="Every query that has been run, with its messages"
+			>
 				Messages
-				{#if result.messages.length || result.error}<span class="count">{result.messages.length + (result.error ? 1 : 0)}</span>{/if}
+				{#if result && (result.messages.length || result.error)}<span class="count">{result.messages.length + (result.error ? 1 : 0)}</span>{/if}
 			</button>
 			<div class="spacer"></div>
-			{#if activeRs}
-				<button class="btn" onclick={() => copy(false)} title="Copy all rows as tab-separated values">
-					{copied === 'plain' ? '✓ Copied' : 'Copy TSV'}
+			{#if !showingMessages && result}
+			{#if resultSets.length > 1}
+				<button
+					class="btn"
+					onclick={() => app.toggleStackedResults()}
+					title={stacked
+						? 'Show each result set in its own tab'
+						: 'Stack every result set into one scrolling view'}
+				>
+					{stacked ? '▤ Tabs' : '▦ Stacked'}
 				</button>
-				<button class="btn" onclick={() => copy(true)} title="Copy all rows as TSV with a header row">
-					{copied === 'hdr' ? '✓ Copied' : 'Copy + Headers'}
+			{/if}
+			{#if activeRs && !stacked}
+				<button
+					class="btn"
+					onclick={() => copy(activeRs, false, 'plain')}
+					title="Copy all rows as tab-separated values"
+				>
+					{copied === 'plain' ? '✓ Copied' : 'Copy TSV'}
 				</button>
 				<button
 					class="btn"
-					onclick={() => exportXlsx(result.resultSets, `${sheet.name}-${sheet.database}`)}
+					onclick={() => copy(activeRs, true, 'hdr')}
+					title="Copy all rows as TSV with a header row"
+				>
+					{copied === 'hdr' ? '✓ Copied' : 'Copy + Headers'}
+				</button>
+			{/if}
+			{#if resultSets.length}
+				<button
+					class="btn"
+					onclick={() => exportXlsx(resultSets, `${sheet.name}-${sheet.database}`)}
 					title="Download all result sets as .xlsx"
 				>
 					Export Excel
 				</button>
 			{/if}
+			{/if}
 		</div>
 
-		{#if active === -1}
-			<div class="messages">
-				{#if result.error}
-					<div class="msg error">
-						✕ {result.error.text}{result.error.line != null ? ` (line ${result.error.line})` : ''}
-					</div>
-				{/if}
-				{#each result.messages as m, i (i)}
-					<div class="msg" class:warn={(m.severity ?? 0) > 10}>{m.text}</div>
+		{#if showingMessages}
+			<MessagesPanel {onAppendSql} />
+		{:else if !result}
+			<div class="center-note hint">
+				<span><kbd>Ctrl</kbd>+<kbd>Enter</kbd> run statement at cursor · <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> run all</span>
+			</div>
+		{:else if stacked && resultSets.length}
+			<div class="stacked">
+				{#each resultSets as resultSet, index (index)}
+					<section class="stacked-set">
+						<header class="stacked-head">
+							<span class="stacked-title">
+								Results {resultSets.length > 1 ? index + 1 : ''}
+							</span>
+							<span class="count">
+								{resultSet.rowCount.toLocaleString()}{resultSet.truncated ? '+' : ''}
+							</span>
+							{#if resultSet.truncated}
+								<span class="warn-inline">
+									showing first {resultSet.rows.length.toLocaleString()}
+								</span>
+							{/if}
+							<span class="spacer"></span>
+							<button
+								class="btn"
+								onclick={() => copy(resultSet, false, `${index}:plain`)}
+								title="Copy this result set as TSV"
+							>
+								{copied === `${index}:plain` ? '✓ Copied' : 'Copy'}
+							</button>
+							<button
+								class="btn"
+								onclick={() => copy(resultSet, true, `${index}:headers`)}
+								title="Copy this result set as TSV with headers"
+							>
+								{copied === `${index}:headers` ? '✓ Copied' : '+ Headers'}
+							</button>
+						</header>
+						<div class="stacked-grid">
+							<Grid rs={resultSet} />
+						</div>
+					</section>
 				{/each}
-				{#if result.ok}
-					<div class="msg ok">
-						✓ Completed in {fmtMs(result.elapsedMs)}
-						{#if result.rowsAffected > 0}· {result.rowsAffected.toLocaleString()} row(s) affected{/if}
-					</div>
-				{/if}
-				{#if !result.error && !result.messages.length && !result.ok}
-					<div class="msg">No messages.</div>
-				{/if}
 			</div>
 		{:else if activeRs}
 			{#if activeRs.truncated}
@@ -206,26 +283,46 @@
 		border-color: var(--error);
 		color: var(--error);
 	}
-	.messages {
+	.stacked {
 		flex: 1;
 		overflow: auto;
-		padding: 10px 14px;
-		font-family: var(--mono);
-		font-size: 12.5px;
+		min-height: 0;
+		padding: 8px;
+		display: flex;
+		flex-direction: column;
+		gap: 12px;
 	}
-	.msg {
-		padding: 2px 0;
+	.stacked-set {
+		display: flex;
+		flex-direction: column;
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		overflow: hidden;
+		flex: none;
+	}
+	.stacked-head {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 8px;
+		background: var(--panel);
+		border-bottom: 1px solid var(--border);
+		font-size: 11.5px;
+		flex: none;
+	}
+	.stacked-title {
 		color: var(--text);
-		white-space: pre-wrap;
+		font-weight: 600;
 	}
-	.msg.error {
-		color: var(--error);
-	}
-	.msg.warn {
+	.warn-inline {
 		color: var(--warn);
+		font-size: 11px;
 	}
-	.msg.ok {
-		color: var(--ok);
+	.stacked-grid {
+		display: flex;
+		flex-direction: column;
+		height: 320px;
+		min-height: 0;
 	}
 	.truncated-note {
 		flex: none;

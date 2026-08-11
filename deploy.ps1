@@ -1,12 +1,12 @@
-# deploy.ps1 — Stop server, pull changes, migrate DB, rebuild, restart on port 7201
+# deploy.ps1 — Stop server, pull changes, migrate DB, rebuild, restart on port 7914
 
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $ScriptDir
 
-# ── 1. Stop any process currently listening on port 7201 ──────────────────────
-Write-Host "Checking for process on port 7201..."
-$listeningLines = netstat -ano | Select-String "TCP\s+[^\s]+:7201\s+[^\s]+\s+LISTENING"
+# ── 1. Stop any process currently listening on port 7914 ──────────────────────
+Write-Host "Checking for process on port 7914..."
+$listeningLines = netstat -ano | Select-String "TCP\s+[^\s]+:7914\s+[^\s]+\s+LISTENING"
 foreach ($listeningLine in $listeningLines) {
     $columns = $listeningLine.Line.Trim() -split '\s+'
     $processId = $columns[-1]
@@ -50,12 +50,12 @@ if (Test-Path ".env") {
     }
 }
 
-$env:PORT = "7201"
+$env:PORT = "7914"
 $env:HOST = "127.0.0.1"
 
 New-Item -ItemType Directory -Force -Path "logs" | Out-Null
 
-Write-Host "Starting server on port 7201..."
+Write-Host "Starting server on port 7914..."
 $serverProcess = Start-Process `
     -FilePath "node" `
     -ArgumentList "build/index.js" `

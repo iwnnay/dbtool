@@ -86,6 +86,14 @@ export function listSheets(): Sheet[] {
 	return sheets.sort((a, b) => a.position - b.position || a.createdAt.localeCompare(b.createdAt));
 }
 
+export function getSheet(id: string): Sheet | null {
+	try {
+		return JSON.parse(fs.readFileSync(sheetPath(id), 'utf-8'));
+	} catch {
+		return null;
+	}
+}
+
 export function createSheet(partial: Partial<Sheet>): Sheet {
 	ensureDirs();
 	const now = new Date().toISOString();

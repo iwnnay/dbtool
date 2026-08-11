@@ -12,6 +12,16 @@ export interface SheetRun {
 	activeResult: number;
 }
 
+const STACKED_KEY = 'dbtool.stackedResults';
+
+function loadStacked(): boolean {
+	try {
+		return localStorage.getItem(STACKED_KEY) === '1';
+	} catch {
+		return false;
+	}
+}
+
 class App {
 	servers = $state<string[]>([]);
 	sheets = $state<Sheet[]>([]);
@@ -19,7 +29,19 @@ class App {
 	runs = $state<Record<string, SheetRun>>({});
 	loaded = $state(false);
 	flashMsg = $state('');
+	stackedResults = $state(loadStacked());
+	resultsView = $state<'results' | 'messages'>('results');
+	completedRuns = $state(0);
 	private flashTimer: ReturnType<typeof setTimeout> | null = null;
+
+	toggleStackedResults(): void {
+		this.stackedResults = !this.stackedResults;
+		try {
+			localStorage.setItem(STACKED_KEY, this.stackedResults ? '1' : '0');
+		} catch {
+			return;
+		}
+	}
 
 	/** Transient status-bar message (connection closed, etc.). */
 	flash(msg: string): void {
@@ -141,6 +163,8 @@ class App {
 			result,
 			activeResult: result.resultSets.length > 0 ? 0 : -1
 		};
+		this.resultsView = result.resultSets.length > 0 ? 'results' : 'messages';
+		this.completedRuns++;
 	}
 
 	async cancel(sheetId: string): Promise<void> {

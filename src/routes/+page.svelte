@@ -6,9 +6,11 @@
 	import Editor from '$lib/client/Editor.svelte';
 	import ResultsPanel from '$lib/client/ResultsPanel.svelte';
 	import AskModal from '$lib/client/AskModal.svelte';
+	import ShortcutsModal from '$lib/client/ShortcutsModal.svelte';
 
 	let editorRef: Editor | undefined = $state();
 	let askOpen = $state(false);
+	let shortcutsOpen = $state(false);
 
 	function appendSql(sql: string) {
 		if (app.activeSheet) editorRef?.appendText(sql);
@@ -211,7 +213,7 @@
 
 			<div class="results-pane" style="height:{resultsH}px;">
 				{#if app.activeSheet}
-					<ResultsPanel sheet={app.activeSheet} />
+					<ResultsPanel sheet={app.activeSheet} onAppendSql={appendSql} />
 				{/if}
 			</div>
 		</main>
@@ -219,6 +221,10 @@
 
 	{#if askOpen}
 		<AskModal scope="general" onAppendSql={appendSql} onClose={() => (askOpen = false)} />
+	{/if}
+
+	{#if shortcutsOpen}
+		<ShortcutsModal onClose={() => (shortcutsOpen = false)} />
 	{/if}
 
 	<footer class="statusbar">
@@ -240,6 +246,23 @@
 				<span class="seg">{totalRows.toLocaleString()} rows</span>
 			{/if}
 		{/if}
+		<button
+			class="key-btn"
+			onclick={() => (shortcutsOpen = true)}
+			title="Keyboard shortcuts"
+			aria-label="Keyboard shortcuts"
+		>
+			<svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+				<circle cx="8" cy="8" r="4.1" fill="none" stroke="currentColor" stroke-width="2.1" />
+				<path
+					d="M11 11 L19.5 19.5 M16.5 16.5 L14.6 18.4 M19.5 19.5 L17.6 21.4"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.1"
+					stroke-linecap="round"
+				/>
+			</svg>
+		</button>
 	</footer>
 </div>
 
@@ -314,6 +337,23 @@
 	.ask-btn:hover {
 		border-color: var(--accent);
 		color: var(--accent);
+	}
+	.key-btn {
+		margin-left: auto;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: none;
+		border: none;
+		border-radius: 4px;
+		color: var(--muted);
+		cursor: pointer;
+		padding: 1px 4px;
+		line-height: 1;
+	}
+	.key-btn:hover {
+		color: var(--accent);
+		background: var(--panel2);
 	}
 	.body {
 		display: flex;

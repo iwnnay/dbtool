@@ -1,7 +1,8 @@
 import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { ensureBridge, type SqlResultSet } from '$lib/server/db/bridgeManager';
-import { updateSheet } from '$lib/server/store';
+import { getSheet, updateSheet } from '$lib/server/store';
+import { recordRun } from '$lib/server/history';
 import { splitBatches } from '$lib/sql/split';
 
 export interface RunResponse {
@@ -46,12 +47,30 @@ export const POST: RequestHandler = async ({ request }) => {
 
 	const out: RunResponse = { ok: true, resultSets: [], messages: [], rowsAffected: 0, elapsedMs: 0 };
 
+	const ranAt = new Date().toISOString();
+	const log = () =>
+		recordRun({
+			ranAt,
+			server,
+			database,
+			sheetId,
+			sheetName: getSheet(sheetId)?.name ?? '(deleted sheet)',
+			sql,
+			ok: out.ok,
+			elapsedMs: out.elapsedMs,
+			rowCount: out.resultSets.reduce((total, resultSet) => total + resultSet.rowCount, 0),
+			rowsAffected: out.rowsAffected,
+			error: out.error?.text ?? null,
+			messages: out.messages
+		});
+
 	let bridge;
 	try {
 		bridge = await ensureBridge(`sheet:${sheetId}`, server, database);
 	} catch (e) {
 		out.ok = false;
 		out.error = { text: `Connection failed: ${(e as Error).message}` };
+		log();
 		return json(out);
 	}
 
@@ -83,5 +102,6 @@ export const POST: RequestHandler = async ({ request }) => {
 		if ((res.rowsAffected ?? -1) > 0) out.rowsAffected += res.rowsAffected!;
 	}
 
+	log();
 	return json(out);
 };

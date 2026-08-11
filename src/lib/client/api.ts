@@ -64,6 +64,22 @@ export interface DatamapJob {
 	error?: string;
 }
 
+export interface HistoryEntry {
+	id: number;
+	ranAt: string;
+	server: string;
+	database: string;
+	sheetId: string;
+	sheetName: string;
+	sql: string;
+	ok: boolean;
+	elapsedMs: number;
+	rowCount: number;
+	rowsAffected: number;
+	error: string | null;
+	messages: { text: string; severity?: number; line?: number }[];
+}
+
 export interface OllamaStatus {
 	ok: boolean;
 	model: string;
@@ -148,6 +164,11 @@ export const api = {
 			body: JSON.stringify({ server, database, force })
 		}),
 	askStatus: () => req<{ ollama: OllamaStatus }>('/api/db/ask'),
+	history: (search = '', limit = 300) =>
+		req<{ entries: HistoryEntry[]; total: number }>(
+			`/api/db/history?limit=${limit}${search ? `&q=${encodeURIComponent(search)}` : ''}`
+		),
+	clearHistory: () => req<{ cleared: number }>('/api/db/history', { method: 'DELETE' }),
 	properties: (server: string, database: string) =>
 		req<{ properties: DbProperties }>(
 			`/api/db/properties?server=${encodeURIComponent(server)}&database=${encodeURIComponent(database)}`
