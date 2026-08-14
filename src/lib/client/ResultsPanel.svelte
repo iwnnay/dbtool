@@ -2,9 +2,10 @@
 	import { app, type ResultTab } from './app.svelte';
 	import type { Sheet, SqlResultSet } from './api';
 	import ContextMenu, { type MenuItem } from './ContextMenu.svelte';
-	import Grid from './Grid.svelte';
+	import DeleteRowsModal from './DeleteRowsModal.svelte';
+	import Grid, { GRID_ROW_HEIGHT } from './Grid.svelte';
 	import MessagesPanel from './MessagesPanel.svelte';
-	import { copyTsv, exportXlsx } from './export';
+	import { copyTsv, copyStackedTsv, exportXlsx } from './export';
 
 	let { sheet, onAppendSql }: { sheet: Sheet; onAppendSql: (sql: string) => void } = $props();
 
@@ -28,10 +29,35 @@
 		return () => clearInterval(t);
 	});
 
+	let stackedViewHeight = $state(0);
+	let stackedHeadHeight = $state(28);
+	const STACKED_PADDING = 16;
+	const STACKED_SET_BORDER = 2;
+	const maxStackedGridHeight = $derived(
+		Math.max(
+			stackedViewHeight - STACKED_PADDING - stackedHeadHeight - STACKED_SET_BORDER,
+			GRID_ROW_HEIGHT * 3
+		)
+	);
+	function stackedGridHeight(resultSet: SqlResultSet): number {
+		const contentHeight = (resultSet.rows.length + 1) * GRID_ROW_HEIGHT;
+		return Math.min(contentHeight, maxStackedGridHeight);
+	}
+
 	let copied = $state('');
 	async function copy(resultSet: SqlResultSet | null, withHeaders: boolean, copyToken: string) {
 		if (!resultSet) return;
 		await copyTsv(resultSet, withHeaders);
+		copied = copyToken;
+		setTimeout(() => (copied = ''), 1200);
+	}
+
+	async function copyAllStacked(withHeaders: boolean, copyToken: string) {
+		if (!tabs.length) return;
+		await copyStackedTsv(
+			tabs.map((tab) => tab.resultSet),
+			withHeaders
+		);
 		copied = copyToken;
 		setTimeout(() => (copied = ''), 1200);
 	}
@@ -42,6 +68,7 @@
 	}
 
 	let menu = $state<{ x: number; y: number; items: MenuItem[] } | null>(null);
+	let deleting = $state<{ tab: ResultTab; rowIndexes: number[] } | null>(null);
 	let renamingTabId = $state<number | null>(null);
 	let renameValue = $state('');
 
@@ -172,6 +199,21 @@
 				>
 					{copied === 'hdr' ? '✓ Copied' : 'Copy + Headers'}
 				</button>
+			{:else if stacked}
+				<button
+					class="btn"
+					onclick={() => copyAllStacked(false, 'all-plain')}
+					title="Copy every result set as TSV, stacked one after another"
+				>
+					{copied === 'all-plain' ? '✓ Copied' : 'Copy TSV'}
+				</button>
+				<button
+					class="btn"
+					onclick={() => copyAllStacked(true, 'all-hdr')}
+					title="Copy every result set as TSV, stacked one after another, each with a header row"
+				>
+					{copied === 'all-hdr' ? '✓ Copied' : 'Copy + Headers'}
+				</button>
 			{/if}
 			{#if tabs.length}
 				<button
@@ -191,10 +233,10 @@
 		{#if showingMessages}
 			<MessagesPanel {onAppendSql} />
 		{:else if stacked && tabs.length}
-			<div class="stacked">
+			<div class="stacked" bind:clientHeight={stackedViewHeight}>
 				{#each tabs as tab (tab.id)}
 					<section class="stacked-set">
-						<header class="stacked-head">
+						<header class="stacked-head" bind:clientHeight={stackedHeadHeight}>
 							<span
 								class="pin"
 								class:on={tab.pinned}
@@ -238,8 +280,12 @@
 								{copied === `${tab.id}:headers` ? '✓ Copied' : '+ Headers'}
 							</button>
 						</header>
-						<div class="stacked-grid">
-							<Grid rs={tab.resultSet} />
+						<div class="stacked-grid" style="height:{stackedGridHeight(tab.resultSet)}px;">
+							<Grid
+								rs={tab.resultSet}
+								deletedRows={tab.deletedRows}
+								onDeleteRows={(rowIndexes) => (deleting = { tab, rowIndexes })}
+							/>
 						</div>
 					</section>
 				{/each}
@@ -255,13 +301,28 @@
 					(display cap — refine the query or export needs a TOP/WHERE)
 				</div>
 			{/if}
-			<Grid rs={activeRs} />
+			<Grid
+				rs={activeRs}
+				deletedRows={activeTab?.deletedRows}
+				onDeleteRows={(rowIndexes) => {
+					if (activeTab) deleting = { tab: activeTab, rowIndexes };
+				}}
+			/>
 		{/if}
 	{/if}
 </div>
 
 {#if menu}
 	<ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => (menu = null)} />
+{/if}
+
+{#if deleting}
+	<DeleteRowsModal
+		{sheet}
+		tab={deleting.tab}
+		rowIndexes={deleting.rowIndexes}
+		onClose={() => (deleting = null)}
+	/>
 {/if}
 
 <style>
@@ -430,7 +491,7 @@
 	.stacked-grid {
 		display: flex;
 		flex-direction: column;
-		height: 320px;
+		flex: none;
 		min-height: 0;
 	}
 	.truncated-note {

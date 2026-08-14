@@ -5,9 +5,13 @@ import { getSheet, updateSheet } from '$lib/server/store';
 import { recordRun } from '$lib/server/history';
 import { splitBatches } from '$lib/sql/split';
 
+export interface RunResultSet extends SqlResultSet {
+	sourceSql: string;
+}
+
 export interface RunResponse {
 	ok: boolean;
-	resultSets: SqlResultSet[];
+	resultSets: RunResultSet[];
 	messages: { text: string; severity?: number; line?: number }[];
 	rowsAffected: number;
 	elapsedMs: number;
@@ -98,7 +102,9 @@ export const POST: RequestHandler = async ({ request }) => {
 			};
 			break;
 		}
-		out.resultSets.push(...(res.resultSets ?? []));
+		out.resultSets.push(
+			...(res.resultSets ?? []).map((resultSet) => ({ ...resultSet, sourceSql: batch.text }))
+		);
 		if ((res.rowsAffected ?? -1) > 0) out.rowsAffected += res.rowsAffected!;
 	}
 

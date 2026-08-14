@@ -20,6 +20,50 @@ export async function copyTsv(rs: SqlResultSet, withHeaders: boolean): Promise<v
 	await navigator.clipboard.writeText(toTsv(rs, withHeaders));
 }
 
+export interface CellRange {
+	top: number;
+	bottom: number;
+	left: number;
+	right: number;
+}
+
+export function rangeTsv(rs: SqlResultSet, range: CellRange, withHeaders: boolean): string {
+	const lines: string[] = [];
+	if (withHeaders) {
+		lines.push(
+			rs.columns
+				.slice(range.left, range.right + 1)
+				.map((column) => cellText(column.name))
+				.join('\t')
+		);
+	}
+	for (let rowIndex = range.top; rowIndex <= range.bottom; rowIndex++) {
+		const row = rs.rows[rowIndex];
+		if (!row) continue;
+		lines.push(row.slice(range.left, range.right + 1).map(cellText).join('\t'));
+	}
+	return lines.join('\r\n');
+}
+
+export async function copyRangeTsv(
+	rs: SqlResultSet,
+	range: CellRange,
+	withHeaders: boolean
+): Promise<void> {
+	await navigator.clipboard.writeText(rangeTsv(rs, range, withHeaders));
+}
+
+export function stackedTsv(resultSets: SqlResultSet[], withHeaders: boolean): string {
+	return resultSets.map((resultSet) => toTsv(resultSet, withHeaders)).join('\r\n\r\n');
+}
+
+export async function copyStackedTsv(
+	resultSets: SqlResultSet[],
+	withHeaders: boolean
+): Promise<void> {
+	await navigator.clipboard.writeText(stackedTsv(resultSets, withHeaders));
+}
+
 /** Download all result sets as one .xlsx, one worksheet per result set. */
 export async function exportXlsx(resultSets: SqlResultSet[], baseName: string): Promise<void> {
 	const ExcelJS = (await import('exceljs')).default;

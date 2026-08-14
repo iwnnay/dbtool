@@ -10,6 +10,7 @@ export interface ResultTab {
 	title: string;
 	resultSet: SqlResultSet;
 	pinned: boolean;
+	deletedRows: Set<number>;
 }
 
 export interface SheetRun {
@@ -210,12 +211,22 @@ class App {
 			label: `Results ${result.resultSets.length > 1 ? index + 1 : ''}`.trim(),
 			title: `${sheet.name} · ${sheet.database} · ${ranAt}`,
 			resultSet,
-			pinned: false
+			pinned: false,
+			deletedRows: new Set<number>()
 		}));
 		this.resultTabs[sheet.id] = [...kept, ...fresh];
 		this.activeTabId[sheet.id] = fresh[0]?.id ?? kept[0]?.id ?? null;
 		this.resultsView = fresh.length > 0 ? 'results' : 'messages';
 		this.completedRuns++;
+	}
+
+	/** Strike out rows a DELETE removed — the grid keeps the data it already has. */
+	markRowsDeleted(sheetId: string, tabId: number, rowIndexes: number[]): void {
+		this.resultTabs[sheetId] = (this.resultTabs[sheetId] ?? []).map((tab) =>
+			tab.id === tabId
+				? { ...tab, deletedRows: new Set([...tab.deletedRows, ...rowIndexes]) }
+				: tab
+		);
 	}
 
 	async cancel(sheetId: string): Promise<void> {

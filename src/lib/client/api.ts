@@ -10,6 +10,7 @@ export interface SqlResultSet {
 	rows: unknown[][];
 	rowCount: number;
 	truncated: boolean;
+	sourceSql?: string;
 }
 
 export interface RunResponse {

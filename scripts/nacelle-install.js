@@ -67,6 +67,51 @@ function fetchSubdir(url, commit, subpath, dest) {
 	}
 }
 
+function normalizedRanges(ranges) {
+	return Object.entries(ranges ?? {})
+		.sort(([leftName], [rightName]) => (leftName < rightName ? -1 : leftName > rightName ? 1 : 0))
+		.map(([dependencyName, range]) => `${dependencyName}@${range}`)
+		.join(',');
+}
+
+function packagesWithStaleLockEntry(packageNames) {
+	const packageLockPath = join(root, 'package-lock.json');
+	if (!existsSync(packageLockPath)) return [];
+	const packageLock = readJson(packageLockPath);
+	const stale = [];
+
+	for (const name of packageNames) {
+		const fetchedManifestPath = join(root, 'nacelle', name, 'package.json');
+		if (!existsSync(fetchedManifestPath)) continue;
+		const fetchedManifest = readJson(fetchedManifestPath);
+		const recordedEntry = packageLock.packages?.[`nacelle/${name}`];
+
+		if (!recordedEntry) {
+			stale.push(name);
+			continue;
+		}
+
+		const fields = ['dependencies', 'devDependencies', 'peerDependencies'];
+		const drifted = fields.some(
+			(field) => normalizedRanges(recordedEntry[field]) !== normalizedRanges(fetchedManifest[field])
+		);
+		if (drifted) stale.push(name);
+	}
+
+	return stale;
+}
+
+function syncPackageLock(reason) {
+	console.log(`[nacelle] ${reason} → npm install …`);
+	const result = spawnSync('npm', ['install', '--no-audit', '--no-fund'], {
+		cwd: root,
+		stdio: 'inherit',
+		shell: true,
+		env: { ...process.env, NACELLE_ENSURING: '1' }
+	});
+	return result.status ?? 0;
+}
+
 // --- fetch (preinstall / --update) ---------------------------------------
 
 function install({ update }) {
@@ -98,6 +143,20 @@ function install({ update }) {
 	}
 
 	writeFileSync(lockPath, JSON.stringify(lock, null, 2) + '\n');
+
+	if (!update || process.env.NACELLE_ENSURING) return;
+
+	const stale = packagesWithStaleLockEntry(Object.keys(manifest.packages));
+	if (!stale.length) return;
+
+	const status = syncPackageLock(`package-lock.json out of sync with ${stale.join(', ')}`);
+	if (status !== 0) {
+		throw new Error(
+			`npm install exited with code ${status} while syncing package-lock.json against ${stale
+				.map((name) => `nacelle/${name}@${lock[name]?.commit?.slice(0, 7) ?? 'unknown'}`)
+				.join(', ')} — package-lock.json is still stale and \`npm ci\` will fail`
+		);
+	}
 }
 
 // --- ensure fetched packages' deps are installed (postinstall) ------------
@@ -118,16 +177,13 @@ function ensure() {
 			if (!existsSync(join(root, 'node_modules', ...d.split('/')))) missing.push(d);
 		}
 	}
-	if (!missing.length) return;
+	const stale = packagesWithStaleLockEntry(Object.keys(manifest.packages));
+	if (!missing.length && !stale.length) return;
 
-	console.log(`[nacelle] completing install of fetched deps (${missing.length} missing) …`);
-	const r = spawnSync('npm', ['install', '--no-audit', '--no-fund'], {
-		cwd: root,
-		stdio: 'inherit',
-		shell: true,
-		env: { ...process.env, NACELLE_ENSURING: '1' }
-	});
-	process.exit(r.status ?? 0);
+	const reason = missing.length
+		? `completing install of fetched deps (${missing.length} missing)`
+		: `package-lock.json out of sync with ${stale.join(', ')}`;
+	process.exit(syncPackageLock(reason));
 }
 
 try {

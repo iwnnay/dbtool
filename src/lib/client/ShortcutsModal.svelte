@@ -29,6 +29,17 @@
 			]
 		},
 		{
+			title: 'Results grid',
+			shortcuts: [
+				{ keys: ['Click', 'drag'], what: 'Select a block of cells · Shift+Click extends the block' },
+				{ keys: ['Click'], what: 'Row number selects the row · column header selects the column' },
+				{ keys: ['Ctrl', 'A'], what: 'Select the whole result set' },
+				{ keys: ['Ctrl', 'C'], what: 'Copy the selection as TSV' },
+				{ keys: ['Right-click'], what: 'Copy the selection, with or without headers' },
+				{ keys: ['Double-click'], what: 'Copy a single cell' }
+			]
+		},
+		{
 			title: 'Explorer',
 			shortcuts: [
 				{ keys: ['Double-click'], what: 'Table — insert SELECT TOP (100)' },
