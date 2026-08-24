@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildDeleteSql, findKeyColumns, qualifyTable, sqlLiteral } from './deleteSql';
-import type { ColumnInfo, SqlResultSet } from './api';
+import { buildDeleteSql, findKeyColumns, qualifyTable, sqlLiteral } from '$lib/client/deleteSql';
+import type { ColumnInfo, SqlResultSet } from '$lib/client/api';
 
 function makeResultSet(columns: [string, string][], rows: unknown[][]): SqlResultSet {
 	return {

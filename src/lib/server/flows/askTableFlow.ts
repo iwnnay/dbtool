@@ -9,6 +9,7 @@ export class AskTableFlow extends BaseFlow {
 	stateSpec = {
 		user_query: '',
 		database: '',
+		dialect: 'Microsoft SQL Server T-SQL',
 		table: '',
 		context: '',
 		history: [],
@@ -25,6 +26,7 @@ export class AskTableFlow extends BaseFlow {
 			'ask_table',
 			{
 				database: String(state.database ?? ''),
+				dialect: String(state.dialect ?? ''),
 				table: String(state.table ?? ''),
 				context: String(state.context ?? '')
 			},

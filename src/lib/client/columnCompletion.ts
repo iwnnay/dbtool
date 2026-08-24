@@ -11,11 +11,22 @@
  * prefix search across the whole database.
  */
 import type { CompletionContext, CompletionResult, Completion } from '@codemirror/autocomplete';
+import { syntaxTree } from '@codemirror/language';
+import type { EditorState } from '@codemirror/state';
 import { statementAt } from '$lib/sql/split';
-import { api, type DbObject } from './api';
+import { api, type DatabaseEngine, type DbObject } from './api';
 import { catalog } from './catalog.svelte';
 
 export type Zone = 'table' | 'column' | 'any';
+
+export function isInSqlComment(state: EditorState, pos: number): boolean {
+	const node = syntaxTree(state).resolveInner(pos, -1);
+	if (node.name === 'LineComment') return true;
+	if (node.name !== 'BlockComment') return false;
+	// At the position immediately after */, the cursor is outside the comment
+	// even though resolving toward the left still returns the comment node.
+	return pos !== node.to || state.sliceDoc(Math.max(0, pos - 2), pos) !== '*/';
+}
 
 interface TableRef {
 	db?: string;
@@ -48,19 +59,20 @@ const NOT_ALIAS = new Set([
 	'apply', 'option', 'for', 'pivot', 'unpivot', 'tablesample', 'values'
 ]);
 
-const REF_RE = /\b(?:from|join|apply|into|update)\s+((?:\[[^\]]*\]|\w+)(?:\.(?:\[[^\]]*\]|\w+))*)(?:\s+(?:as\s+)?(\w+))?/gi;
+const IDENT = '(?:\\[[^\\]]*\\]|"[^"]*"|`[^`]*`|\\w+)';
+const REF_RE = new RegExp(`\\b(?:from|join|apply|into|update)\\s+(${IDENT}(?:\\.${IDENT})*)(?:\\s+(?:as\\s+)?(\\w+))?`, 'gi');
 
-export function parseTableRefs(sql: string): TableRef[] {
+export function parseTableRefs(sql: string, defaultSchema = 'dbo'): TableRef[] {
 	const refs: TableRef[] = [];
 	REF_RE.lastIndex = 0;
 	let m: RegExpExecArray | null;
 	while ((m = REF_RE.exec(sql))) {
-		const parts = m[1].split('.').map((p) => p.replace(/^\[|\]$/g, ''));
+		const parts = m[1].split('.').map((p) => p.replace(/^\[|\]$|^"|"$|^`|`$/g, ''));
 		const table = parts[parts.length - 1];
 		if (!table) continue;
 		refs.push({
 			db: parts.length >= 3 ? parts[parts.length - 3] : undefined,
-			schema: parts.length >= 2 ? parts[parts.length - 2] : 'dbo',
+			schema: parts.length >= 2 ? parts[parts.length - 2] : defaultSchema,
 			table,
 			alias: m[2] && !NOT_ALIAS.has(m[2].toLowerCase()) ? m[2] : undefined
 		});
@@ -151,9 +163,11 @@ async function allColumnOptions(
 	return options;
 }
 
-export function columnCompletionSource(getConn: () => { server: string; database: string }) {
+export function columnCompletionSource(getConn: () => { server: string; database: string; engine?: DatabaseEngine }) {
 	return async (ctx: CompletionContext): Promise<CompletionResult | null> => {
-		const { server, database } = getConn();
+		if (isInSqlComment(ctx.state, ctx.pos)) return null;
+
+		const { server, database, engine = 'mssql' } = getConn();
 		if (!server || !database) return null;
 
 		const dotted = ctx.matchBefore(/\w+\.\w*$/);
@@ -162,7 +176,7 @@ export function columnCompletionSource(getConn: () => { server: string; database
 
 		const stmt = statementAt(ctx.state.doc.toString(), ctx.pos);
 		const zone: Zone = stmt ? zoneAt(stmt.text, ctx.pos - stmt.start) : 'any';
-		const refs = stmt ? parseTableRefs(stmt.text) : [];
+		const refs = stmt ? parseTableRefs(stmt.text, engine === 'sqlite' ? 'main' : engine === 'postgres' ? 'public' : 'dbo') : [];
 
 		const qualifier = dotted ? dotted.text.slice(0, dotted.text.indexOf('.')).toLowerCase() : null;
 		const from = dotted ? dotted.from + dotted.text.indexOf('.') + 1 : (word?.from ?? ctx.pos);

@@ -4,7 +4,7 @@
  * selected row into `DELETE FROM <table> WHERE <key> = <value>;`.
  */
 import type { ColumnInfo, SqlResultSet } from './api';
-import { bracket } from './catalog.svelte';
+import { qualifyObject, quoteIdentifier, type DatabaseEngine } from '$lib/db/types';
 
 export interface KeyColumn {
 	column: ColumnInfo;
@@ -14,14 +14,13 @@ export interface KeyColumn {
 export type KeyLookup = { ok: true; keyColumns: KeyColumn[] } | { ok: false; reason: string };
 
 const NUMERIC_TYPES = new Set([
-	'int', 'bigint', 'smallint', 'tinyint', 'decimal', 'numeric', 'float', 'real', 'money', 'smallmoney'
+	'int', 'integer', 'bigint', 'smallint', 'tinyint', 'decimal', 'numeric', 'float', 'real', 'double precision', 'money', 'smallmoney'
 ]);
 const NATIONAL_TYPES = new Set(['nvarchar', 'nchar', 'ntext', 'sysname']);
 const BINARY_TYPES = new Set(['binary', 'varbinary', 'image', 'timestamp', 'rowversion']);
 
-export function qualifyTable(schema: string, table: string, database?: string): string {
-	const name = `${bracket(schema)}.${bracket(table)}`;
-	return database ? `${bracket(database)}.${name}` : name;
+export function qualifyTable(schema: string, table: string, database?: string, engine: DatabaseEngine = 'mssql'): string {
+	return qualifyObject(engine, schema, table, database);
 }
 
 export function findKeyColumns(
@@ -51,7 +50,7 @@ export function findKeyColumns(
 	return { ok: true, keyColumns };
 }
 
-export function sqlLiteral(value: unknown, columnName: string, type: string): string {
+export function sqlLiteral(value: unknown, columnName: string, type: string, engine: DatabaseEngine = 'mssql'): string {
 	if (value == null) {
 		throw new Error(
 			`Key column "${columnName}" is NULL in the selected row — a DELETE cannot match a row on a NULL key`
@@ -62,7 +61,7 @@ export function sqlLiteral(value: unknown, columnName: string, type: string): st
 			`Key column "${columnName}" is ${type}; binary key values from the grid cannot be turned into a literal safely`
 		);
 	}
-	if (typeof value === 'boolean') return value ? '1' : '0';
+	if (typeof value === 'boolean') return engine === 'postgres' ? (value ? 'TRUE' : 'FALSE') : (value ? '1' : '0');
 	if (typeof value === 'number') {
 		if (!Number.isFinite(value)) {
 			throw new Error(`Key column "${columnName}" holds ${value}, which is not a usable ${type} literal`);
@@ -76,10 +75,10 @@ export function sqlLiteral(value: unknown, columnName: string, type: string): st
 		}
 		return text.trim();
 	}
-	if (type === 'bit') {
+	if (type === 'bit' || type === 'boolean') {
 		const bit = text.trim().toLowerCase();
-		if (['1', 'true'].includes(bit)) return '1';
-		if (['0', 'false'].includes(bit)) return '0';
+		if (['1', 'true'].includes(bit)) return engine === 'postgres' ? 'TRUE' : '1';
+		if (['0', 'false'].includes(bit)) return engine === 'postgres' ? 'FALSE' : '0';
 		throw new Error(`Key column "${columnName}": "${text}" is not a valid bit value`);
 	}
 	const quoted = `'${text.replace(/'/g, "''")}'`;
@@ -90,7 +89,8 @@ export function buildDeleteSql(
 	target: string,
 	keyColumns: KeyColumn[],
 	resultSet: SqlResultSet,
-	rowIndexes: number[]
+	rowIndexes: number[],
+	engine: DatabaseEngine = 'mssql'
 ): string {
 	if (rowIndexes.length === 0) {
 		throw new Error(`No rows are selected, so there is nothing to delete from ${target}`);
@@ -106,7 +106,7 @@ export function buildDeleteSql(
 			const predicate = keyColumns
 				.map(
 					({ column, resultIndex }) =>
-						`${bracket(column.name)} = ${sqlLiteral(row[resultIndex], column.name, column.type)}`
+						`${quoteIdentifier(engine, column.name)} = ${sqlLiteral(row[resultIndex], column.name, column.type, engine)}`
 				)
 				.join(' AND ');
 			return `DELETE FROM ${target} WHERE ${predicate};`;

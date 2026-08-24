@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Modal from './Modal.svelte';
 	import { api, type DbProperties } from './api';
+	import { app } from './app.svelte';
 
 	let {
 		server,
@@ -10,6 +11,7 @@
 
 	let info = $state<DbProperties | null>(null);
 	let error = $state('');
+	const engine = $derived(app.connection(server)?.type ?? 'mssql');
 
 	$effect(() => {
 		api
@@ -31,26 +33,21 @@
 		<div class="note">Loading…</div>
 	{:else}
 		<dl>
-			<dt>Server</dt>
-			<dd>{server}</dd>
-			<dt>Owner</dt>
-			<dd>{info.owner ?? '—'}</dd>
+			<dt>Connection</dt>
+			<dd>{app.connection(server)?.name ?? server}</dd>
+			{#if engine !== 'sqlite'}<dt>Owner / user</dt><dd>{info.owner ?? '—'}</dd>{/if}
 			<dt>Collation</dt>
 			<dd>{info.collation ?? '—'}</dd>
-			<dt>Active connections</dt>
-			<dd>{info.userConnections ?? '—'}</dd>
+			{#if engine !== 'sqlite'}<dt>Active connections</dt><dd>{info.userConnections ?? '—'}</dd>{/if}
 			<dt>Data size</dt>
 			<dd>{mb(info.dataMb)}</dd>
-			<dt>Log size</dt>
-			<dd>{mb(info.logMb)}</dd>
-			<dt>Created</dt>
-			<dd>{info.createDate.replace('T', ' ').slice(0, 19)}</dd>
+			{#if engine === 'mssql'}<dt>Log size</dt><dd>{mb(info.logMb)}</dd>{/if}
+			{#if info.createDate}<dt>Created</dt><dd>{info.createDate.replace('T', ' ').slice(0, 19)}</dd>{/if}
 			<dt>State</dt>
 			<dd>{info.state}</dd>
-			<dt>Recovery model</dt>
+			<dt>{engine === 'postgres' ? 'Encoding' : engine === 'sqlite' ? 'Access' : 'Recovery model'}</dt>
 			<dd>{info.recoveryModel}</dd>
-			<dt>Compatibility level</dt>
-			<dd>{info.compatibilityLevel}</dd>
+			{#if engine === 'mssql'}<dt>Compatibility level</dt><dd>{info.compatibilityLevel}</dd>{/if}
 		</dl>
 	{/if}
 </Modal>

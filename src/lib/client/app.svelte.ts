@@ -2,7 +2,7 @@
  * Central client state (Svelte 5 runes). One instance for the whole app:
  * sheets + active tab, per-sheet run results, and the registered servers.
  */
-import { api, type RunResponse, type Sheet, type SqlResultSet } from './api';
+import { api, type ConnectionProfile, type ConnectionProfileInput, type RunResponse, type Sheet, type SqlResultSet } from './api';
 
 export interface ResultTab {
 	id: number;
@@ -30,7 +30,7 @@ function loadStacked(): boolean {
 }
 
 class App {
-	servers = $state<string[]>([]);
+	connections = $state<ConnectionProfile[]>([]);
 	sheets = $state<Sheet[]>([]);
 	activeSheetId = $state<string | null>(null);
 	runs = $state<Record<string, SheetRun>>({});
@@ -82,9 +82,13 @@ class App {
 		return this.activeSheetId ? (this.runs[this.activeSheetId] ?? null) : null;
 	}
 
+	connection(id: string): ConnectionProfile | undefined {
+		return this.connections.find((connection) => connection.id === id);
+	}
+
 	async init(): Promise<void> {
-		const [{ servers }, { sheets }] = await Promise.all([api.servers(), api.sheets()]);
-		this.servers = servers;
+		const [{ connections }, { sheets }] = await Promise.all([api.connections(), api.sheets()]);
+		this.connections = connections;
 		this.sheets = sheets;
 		if (sheets.length === 0) {
 			await this.newSheet();
@@ -94,12 +98,12 @@ class App {
 		this.loaded = true;
 	}
 
-	async addServer(name: string): Promise<void> {
-		this.servers = (await api.addServer(name)).servers;
+	async addConnection(connection: ConnectionProfileInput & { id?: string }): Promise<void> {
+		this.connections = (await api.addConnection(connection)).connections;
 	}
 
-	async removeServer(name: string): Promise<void> {
-		this.servers = (await api.removeServer(name)).servers;
+	async removeConnection(id: string): Promise<void> {
+		this.connections = (await api.removeConnection(id)).connections;
 	}
 
 	async newSheet(partial: Partial<Sheet> = {}): Promise<Sheet> {

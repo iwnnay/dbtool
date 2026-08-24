@@ -159,7 +159,7 @@
 
 	const placeholder = $derived(
 		scope === 'general'
-			? 'Ask anything about SQL Server or T-SQL…'
+			? 'Ask anything about SQL Server, PostgreSQL, SQLite, or SQL…'
 			: scope === 'table'
 				? `Ask about ${schema}.${table}…`
 				: !status?.exists
@@ -224,14 +224,14 @@
 					{#if scope === 'general'}
 						Ask anything about SQL Server itself — e.g. <em>"what's the difference between a
 						clustered and a nonclustered index?"</em> or <em>"how do I read a key lookup in an
-						execution plan?"</em> No schema is loaded, so answers are generic T-SQL.
+						execution plan?"</em> No schema is loaded, so answers use generic or explicitly requested SQL.
 					{:else if scope === 'table'}
 						Ask about <em>{schema}.{table}</em> — e.g. <em>"what does each column mean?"</em>,
 						<em>"write a query for the 100 most recent rows"</em> or <em>"which tables join to
 						this one?"</em> Only this table's definition is loaded.
 					{:else}
 						Ask about {database} in plain English — e.g. <em>"find all patients with a last name
-						starting with zzz and an ICD code of I50.9"</em> — and get runnable T-SQL grounded in
+						starting with zzz and an ICD code of I50.9"</em> — and get runnable SQL grounded in
 						the datamap.
 					{/if}
 				</div>

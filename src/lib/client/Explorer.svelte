@@ -9,6 +9,8 @@
 	import AskModal from './AskModal.svelte';
 	import IgnoreModal from './IgnoreModal.svelte';
 	import { api } from './api';
+	import ConnectionModal from './ConnectionModal.svelte';
+	import { quoteIdentifier, sampleSelect } from '$lib/db/types';
 
 	let {
 		onInsert,
@@ -22,8 +24,10 @@
 
 	let search = $state('');
 	let expanded = $state<Record<string, boolean>>({});
-	let addingServer = $state(false);
-	let newServerName = $state('');
+	let addingConnection = $state(false);
+
+	function profile(server: string) { return app.connection(server); }
+	function quote(server: string, value: string) { return quoteIdentifier(profile(server)?.type ?? 'mssql', value); }
 
 	interface TableRef {
 		server: string;
@@ -69,8 +73,8 @@
 		return [...map.entries()].map(([name, objs]) => ({ name, objects: objs }));
 	}
 
-	function insertSelect(schema: string, table: string) {
-		onInsert(`SELECT TOP (100) *\nFROM ${bracket(schema)}.${bracket(table)}\n`);
+	function insertSelect(server: string, schema: string, table: string) {
+		onInsert(sampleSelect(profile(server)?.type ?? 'mssql', schema, table, 100));
 	}
 
 	function objIcon(type: DbObject['type']): string {
@@ -115,7 +119,7 @@
 				label: 'Remove server…',
 				action: () => {
 					if (confirm(`Remove ${server} from the server list? (Closes its connections; you can re-add it any time.)`)) {
-						void api.disconnect(server).then(() => app.removeServer(server));
+						void api.disconnect(server).then(() => app.removeConnection(server));
 					}
 				}
 			}
@@ -160,7 +164,7 @@
 					void app.newSheet({
 						server: t.server,
 						database: t.db,
-						sql: `SELECT TOP (1000) *\nFROM ${bracket(t.schema)}.${bracket(t.table)};\n`
+					sql: sampleSelect(profile(t.server)?.type ?? 'mssql', t.schema, t.table, 1000)
 					})
 			},
 			{ label: 'Ask about this table…', action: () => (modal = { ...t, kind: 'askTable' }) },
@@ -176,7 +180,9 @@
 			{ label: 'View definition', action: () => void viewDefinition(ref) },
 			{
 				label: 'Insert EXEC',
-				action: () => onInsert(`EXEC ${bracket(ref.schema)}.${bracket(ref.table)};\n`)
+				action: () => onInsert(profile(ref.server)?.type === 'postgres'
+					? `CALL ${quote(ref.server, ref.schema)}.${quote(ref.server, ref.table)}();\n`
+					: `EXEC ${quote(ref.server, ref.schema)}.${quote(ref.server, ref.table)};\n`)
 			},
 			{ label: 'Ignore procedure', action: () => void ignoreTable(ref) }
 		];
@@ -210,33 +216,13 @@
 	});
 	const searchedDbCount = $derived(Object.keys(catalog.objects).length);
 
-	async function addServer() {
-		const name = newServerName.trim();
-		if (!name) return;
-		await app.addServer(name);
-		newServerName = '';
-		addingServer = false;
-		toggleServer(name);
-	}
 </script>
 
 <div class="explorer">
 	<div class="head">
 		<span class="title">Database Explorer</span>
-		<button class="icon-btn" title="Add server" onclick={() => (addingServer = !addingServer)}>+</button>
+		<button class="icon-btn" title="Add connection" onclick={() => (addingConnection = true)}>+</button>
 	</div>
-	{#if addingServer}
-		<div class="add-server">
-			<!-- svelte-ignore a11y_autofocus -->
-			<input
-				placeholder="server\instance"
-				bind:value={newServerName}
-				autofocus
-				onkeydown={(e) => e.key === 'Enter' && addServer()}
-			/>
-			<button class="icon-btn" onclick={addServer}>✓</button>
-		</div>
-	{/if}
 	<div class="search">
 		<input placeholder="Search tables & procedures…" bind:value={search} />
 		{#if search}
@@ -257,12 +243,12 @@
 					class="node hit"
 					role="button"
 					tabindex="0"
-					ondblclick={() => (isProc ? void viewDefinition(hitRef) : insertSelect(h.o.schema, h.o.name))}
+							ondblclick={() => (isProc ? void viewDefinition(hitRef) : insertSelect(h.server, h.o.schema, h.o.name))}
 					oncontextmenu={(e) => openMenu(e, isProc ? procMenuItems(hitRef) : menuItems(hitRef))}
 					onkeydown={(e) => {
 						if (e.key !== 'Enter') return;
 						if (isProc) void viewDefinition(hitRef);
-						else insertSelect(h.o.schema, h.o.name);
+								else insertSelect(h.server, h.o.schema, h.o.name);
 					}}
 					title="{h.server} · {h.db} — double-click to {isProc ? 'open definition' : 'insert SELECT'}, right-click for actions"
 				>
@@ -272,7 +258,8 @@
 				</div>
 			{/each}
 		{:else}
-			{#each app.servers as server (server)}
+			{#each app.connections as connection (connection.id)}
+				{@const server = connection.id}
 				{@const sKey = `s|${server}`}
 				<div class="node server" role="button" tabindex="0"
 					onclick={() => toggleServer(server)}
@@ -281,7 +268,7 @@
 					title="Right-click: connection actions">
 					<span class="chev" class:open={expanded[sKey]}>▸</span>
 					<span class="srv-icon">⛁</span>
-					<span class="name">{server}</span>
+					<span class="name">{connection.name}</span><span class="engine">{connection.type}</span>
 				</div>
 				{#if expanded[sKey]}
 					{#if catalog.loading[server]}<div class="note">loading…</div>{/if}
@@ -336,7 +323,7 @@
 										<div class="node table" role="button" tabindex="0"
 											onclick={() => toggleTable(tRef)}
 											onkeydown={(e) => e.key === 'Enter' && toggleTable(tRef)}
-											ondblclick={() => insertSelect(sch.name, o.name)}
+									ondblclick={() => insertSelect(server, sch.name, o.name)}
 											oncontextmenu={(e) => openMenu(e, menuItems(tRef))}
 											title="Double-click: insert SELECT · right-click: actions">
 											<span class="chev" class:open={expanded[tKey]}>▸</span>
@@ -348,7 +335,7 @@
 											{#if catalog.loading[cKey]}<div class="note deeper">loading…</div>{/if}
 											{#each catalog.columns[cKey] ?? [] as c (c.name)}
 												<div class="node col" role="button" tabindex="0"
-													ondblclick={() => onInsert(bracket(c.name))}
+										ondblclick={() => onInsert(quote(server, c.name))}
 													title="Double-click: insert column name">
 													<span class="col-key">{c.isPk ? '🔑' : ''}</span>
 													<span class="name">{c.name}</span>
@@ -363,12 +350,16 @@
 					{/each}
 				{/if}
 			{/each}
-			{#if app.servers.length === 0}
-				<div class="note">No servers yet — click <strong>+</strong> above and add one, e.g. <code>localhost\SQLEXPRESS</code></div>
+			{#if app.connections.length === 0}
+				<div class="note">No connections yet — click <strong>+</strong> to add SQL Server, PostgreSQL, or SQLite.</div>
 			{/if}
 		{/if}
 	</div>
 </div>
+
+{#if addingConnection}
+	<ConnectionModal onClose={() => (addingConnection = false)} onAdded={(id) => toggleServer(id)} />
+{/if}
 
 {#if menu}
 	<ContextMenu x={menu.x} y={menu.y} items={menu.items} onClose={() => (menu = null)} />
@@ -437,17 +428,11 @@
 		text-transform: uppercase;
 		color: var(--muted);
 	}
-	.add-server {
-		display: flex;
-		gap: 4px;
-		padding: 0 10px 6px;
-	}
 	.search {
 		position: relative;
 		padding: 0 10px 8px;
 	}
-	.search input,
-	.add-server input {
+	.search input {
 		width: 100%;
 		background: var(--bg);
 		border: 1px solid var(--border);
@@ -457,8 +442,7 @@
 		padding: 6px 9px;
 		outline: none;
 	}
-	.search input:focus,
-	.add-server input:focus {
+	.search input:focus {
 		border-color: var(--accent);
 	}
 	.search .clear {
@@ -526,6 +510,7 @@
 	.obj-icon.proc {
 		color: var(--warn);
 	}
+	.engine { margin-left: auto; color: var(--muted); font-size: 9px; text-transform: uppercase; }
 	.node.db {
 		padding-left: 20px;
 	}
@@ -597,9 +582,5 @@
 		margin-left: auto;
 		color: var(--muted);
 		font-size: 10.5px;
-	}
-	code {
-		font-family: var(--mono);
-		font-size: 11px;
 	}
 </style>

@@ -18,12 +18,12 @@ export default defineConfig(({ mode }) => {
 			noExternal: ['nacelle-core']
 		},
 		test: {
-			include: ['src/**/*.{test,spec}.{js,ts}'],
+			include: ['tests/**/*.{test,spec}.{js,ts}'],
 			coverage: {
 				provider: 'v8',
 				reporter: ['text', 'html'],
 				include: ['src/**/*.{js,ts}'],
-				exclude: ['src/**/*.{test,spec}.{js,ts}', 'src/**/*.d.ts']
+				exclude: ['src/**/*.d.ts']
 			}
 		}
 	};

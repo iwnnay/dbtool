@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { rangeTsv, stackedTsv, toTsv } from './export';
-import type { SqlResultSet } from './api';
+import { rangeTsv, stackedTsv, toTsv } from '$lib/client/export';
+import type { SqlResultSet } from '$lib/client/api';
 
 function makeResultSet(columnNames: string[], rows: unknown[][]): SqlResultSet {
 	return {

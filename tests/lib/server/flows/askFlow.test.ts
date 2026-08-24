@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { registerDiscoveredFlows, FLOW_REGISTRY } from 'nacelle-core/server';
-import * as generalModule from '../askGeneralFlow';
-import * as databaseModule from '../askDatabaseFlow';
-import * as tableModule from '../askTableFlow';
+import * as generalModule from '$lib/server/flows/askGeneralFlow';
+import * as databaseModule from '$lib/server/flows/askDatabaseFlow';
+import * as tableModule from '$lib/server/flows/askTableFlow';
 
 const EXPECTED = {
 	ask_general_flow: 'AskGeneralFlow',

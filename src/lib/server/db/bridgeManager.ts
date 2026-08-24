@@ -12,6 +12,8 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import path from 'node:path';
+import type { ConnectionProfile } from '$lib/db/types';
+import { getConnection } from '$lib/server/store';
 
 export interface SqlColumn {
 	name: string;
@@ -49,12 +51,14 @@ interface Pending {
 }
 
 const BRIDGE_SCRIPT = path.resolve(process.cwd(), 'scripts', 'sql-bridge.ps1');
+const DB_WORKER_SCRIPT = path.resolve(process.cwd(), 'scripts', 'db-worker.mjs');
 const REQUEST_MARGIN_MS = 10_000;
 
 export class Bridge {
 	readonly key: string;
 	server = '';
 	database = '';
+	profile: ConnectionProfile | null = null;
 	private proc: ChildProcessWithoutNullStreams | null = null;
 	private pending = new Map<number, Pending>();
 	private nextId = 1;
@@ -65,10 +69,13 @@ export class Bridge {
 		this.key = key;
 	}
 
-	private spawnProc(): void {
+	private spawnProc(profile: ConnectionProfile): void {
+		const isSqlServer = profile.type === 'mssql';
 		const proc = spawn(
-			'pwsh',
-			['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', BRIDGE_SCRIPT],
+			isSqlServer ? 'pwsh' : process.execPath,
+			isSqlServer
+				? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', BRIDGE_SCRIPT]
+				: [DB_WORKER_SCRIPT],
 			{ windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] }
 		);
 		createInterface({ input: proc.stdout }).on('line', (line) => {
@@ -125,18 +132,21 @@ export class Bridge {
 		return result;
 	}
 
-	async connect(server: string, database: string): Promise<void> {
+	async connect(profile: ConnectionProfile, database: string): Promise<void> {
 		if (!this.proc || this.dead) {
 			this.dead = false;
-			this.spawnProc();
+			this.spawnProc(profile);
 		}
 		const res = await this.send<{ ok: boolean; error?: string }>(
-			{ op: 'connect', server, database },
+			profile.type === 'mssql'
+				? { op: 'connect', server: profile.server, database }
+				: { op: 'connect', profile, database },
 			30_000
 		);
 		if (!res.ok) throw new Error(res.error ?? 'Connect failed');
-		this.server = server;
+		this.server = profile.id;
 		this.database = database;
+		this.profile = profile;
 	}
 
 	query(sql: string, opts: { maxRows?: number; timeout?: number } = {}): Promise<QueryResult> {
@@ -168,13 +178,16 @@ const bridges: Map<string, Bridge> = (g.__dbtoolBridges ??= new Map());
 
 /** Get (spawning/reconnecting as needed) a bridge connected to server+database. */
 export async function ensureBridge(key: string, server: string, database: string): Promise<Bridge> {
+	const profile = getConnection(server);
+	if (!profile) throw new Error(`Unknown connection: ${server}`);
 	let b = bridges.get(key);
-	if (!b || b.dead) {
+	if (!b || b.dead || (b.profile && b.profile.type !== profile.type)) {
+		b?.kill();
 		b = new Bridge(key);
 		bridges.set(key, b);
 	}
 	if (b.server !== server || b.database !== database || b.dead) {
-		await b.connect(server, database);
+		await b.connect(profile, database);
 	}
 	return b;
 }

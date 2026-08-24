@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import type { ConnectionProfile, ConnectionProfileInput } from '$lib/db/types';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const SHEETS_DIR = path.join(DATA_DIR, 'sheets');
@@ -18,15 +19,28 @@ function ensureDirs(): void {
 // ---------- servers ----------
 
 interface Config {
-	servers: string[];
+	connections: ConnectionProfile[];
 }
 
 function readConfig(): Config {
 	ensureDirs();
 	try {
-		return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+		const raw = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8')) as {
+			connections?: ConnectionProfile[];
+			servers?: string[];
+		};
+		if (Array.isArray(raw.connections)) return { connections: raw.connections };
+		// Transparent migration from the original SQL Server-only string list.
+		return {
+			connections: (raw.servers ?? []).map((server) => ({
+				id: server,
+				name: server,
+				type: 'mssql' as const,
+				server
+			}))
+		};
 	} catch {
-		return { servers: [] };
+		return { connections: [] };
 	}
 }
 
@@ -35,22 +49,41 @@ function writeConfig(cfg: Config): void {
 	fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, '\t'));
 }
 
-export function listServers(): string[] {
-	return readConfig().servers;
+export function listConnections(): ConnectionProfile[] {
+	return readConfig().connections;
 }
 
-export function addServer(name: string): string[] {
-	const cfg = readConfig();
-	if (!cfg.servers.includes(name)) cfg.servers.push(name);
-	writeConfig(cfg);
-	return cfg.servers;
+export function getConnection(id: string): ConnectionProfile | null {
+	return listConnections().find((connection) => connection.id === id) ?? null;
 }
 
-export function removeServer(name: string): string[] {
+function uniqueId(name: string, existing: ConnectionProfile[]): string {
+	const base = name.trim().replace(/[^a-z0-9_.-]+/gi, '-').replace(/^-|-$/g, '') || 'connection';
+	if (!existing.some((connection) => connection.id === base)) return base;
+	for (let suffix = 2; ; suffix++) {
+		if (!existing.some((connection) => connection.id === `${base}-${suffix}`)) return `${base}-${suffix}`;
+	}
+}
+
+export function addConnection(input: ConnectionProfileInput & { id?: string }): ConnectionProfile[] {
 	const cfg = readConfig();
-	cfg.servers = cfg.servers.filter((s) => s !== name);
+	const id = input.id?.trim() || uniqueId(input.name, cfg.connections);
+	if (cfg.connections.some((connection) => connection.id === id)) throw new Error(`Connection id already exists: ${id}`);
+	const connection = { ...input, id } as ConnectionProfile;
+	cfg.connections.push(connection);
 	writeConfig(cfg);
-	return cfg.servers;
+	return cfg.connections;
+}
+
+export function addSqlServer(name: string): ConnectionProfile[] {
+	return addConnection({ name, type: 'mssql', server: name });
+}
+
+export function removeConnection(id: string): ConnectionProfile[] {
+	const cfg = readConfig();
+	cfg.connections = cfg.connections.filter((connection) => connection.id !== id);
+	writeConfig(cfg);
+	return cfg.connections;
 }
 
 // ---------- sheets ----------

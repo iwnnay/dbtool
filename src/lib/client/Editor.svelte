@@ -1,9 +1,15 @@
 <script lang="ts">
 	import { EditorView, keymap } from '@codemirror/view';
-	import { EditorSelection, EditorState, Prec } from '@codemirror/state';
+	import { Compartment, EditorSelection, EditorState, Prec } from '@codemirror/state';
+	import {
+		acceptCompletion,
+		completionStatus,
+		moveCompletionSelection
+	} from '@codemirror/autocomplete';
+	import { indentLess, indentMore, insertNewlineAndIndent } from '@codemirror/commands';
 	import { basicSetup } from 'codemirror';
 	import { selectNextOccurrence } from '@codemirror/search';
-	import { sql, MSSQL } from '@codemirror/lang-sql';
+	import { sql, MSSQL, PostgreSQL, SQLite } from '@codemirror/lang-sql';
 	import { HighlightStyle, syntaxHighlighting } from '@codemirror/language';
 	import { tags as t } from '@lezer/highlight';
 	import { statementAt } from '$lib/sql/split';
@@ -26,11 +32,15 @@
 	// request, so no reconfiguration is needed when either changes.
 	const columnSource = columnCompletionSource(() => ({
 		server: sheet.server,
-		database: sheet.database
+		database: sheet.database,
+		engine: app.connection(sheet.server)?.type
 	}));
 
+	const dialectCompartment = new Compartment();
 	function sqlExt() {
-		const s = sql({ dialect: MSSQL, upperCaseKeywords: true });
+		const engine = app.connection(sheet.server)?.type ?? 'mssql';
+		const dialect = engine === 'postgres' ? PostgreSQL : engine === 'sqlite' ? SQLite : MSSQL;
+		const s = sql({ dialect, upperCaseKeywords: true });
 		return [s, s.language.data.of({ autocomplete: columnSource })];
 	}
 
@@ -88,6 +98,46 @@
 		return true;
 	}
 
+	function acceptCompletionOrIndent(v: EditorView): boolean {
+		if (completionStatus(v.state) === 'active') {
+			acceptCompletion(v);
+			return true;
+		}
+		return indentMore(v);
+	}
+
+	const moveToNextCompletion = moveCompletionSelection(true);
+
+	function nextCompletionOrOutdent(v: EditorView): boolean {
+		if (completionStatus(v.state) === 'active') {
+			moveToNextCompletion(v);
+			return true;
+		}
+		return indentLess(v);
+	}
+
+	/** Ctrl+J: join the line below to the current line, like Vim's J command. */
+	function joinLineBelow(v: EditorView): boolean {
+		const tr = v.state.changeByRange((r) => {
+			const line = v.state.doc.lineAt(r.head);
+			if (line.number === v.state.doc.lines) return { range: r };
+
+			const next = v.state.doc.line(line.number + 1);
+			const trailingWhitespace = line.text.length - line.text.trimEnd().length;
+			const leadingWhitespace = next.text.length - next.text.trimStart().length;
+			const from = line.to - trailingWhitespace;
+			const to = next.from + leadingWhitespace;
+			const insert = from > line.from && to < next.to ? ' ' : '';
+
+			return {
+				changes: { from, to, insert },
+				range: EditorSelection.cursor(from + insert.length)
+			};
+		});
+		if (!tr.changes.empty) v.dispatch(tr, { scrollIntoView: true, userEvent: 'input.joinline' });
+		return true;
+	}
+
 	/** Ctrl+D: duplicate the current line (or the selection), cursor on the copy. */
 	function duplicateLine(v: EditorView): boolean {
 		const tr = v.state.changeByRange((r) => {
@@ -135,8 +185,12 @@
 			extensions: [
 				Prec.highest(
 					keymap.of([
+						{ key: 'Tab', run: acceptCompletionOrIndent, shift: nextCompletionOrOutdent },
+						// Completion's default Enter binding must not accept suggestions.
+						{ key: 'Enter', run: insertNewlineAndIndent },
 						{ key: 'Mod-Enter', run: runCurrent },
 						{ key: 'Mod-Shift-Enter', run: runAll },
+						{ key: 'Mod-j', run: joinLineBelow },
 						{ key: 'Mod-d', run: duplicateLine },
 						{ key: 'Mod-Shift-d', run: selectNextOccurrence },
 						{ key: 'Mod-Alt-ArrowDown', run: (v) => addCursorVertical(v, 1) },
@@ -152,7 +206,7 @@
 				),
 				basicSetup,
 				EditorView.clickAddsSelectionRange.of((e) => e.altKey && !e.shiftKey),
-				sqlExt(),
+					dialectCompartment.of(sqlExt()),
 				theme,
 				syntaxHighlighting(highlight),
 				EditorView.updateListener.of((u) => {
@@ -188,6 +242,11 @@
 	// offer even before the tree is expanded.
 	$effect(() => {
 		if (sheet.server && sheet.database) void catalog.loadObjects(sheet.server, sheet.database);
+	});
+
+	$effect(() => {
+		app.connection(sheet.server)?.type;
+		if (view && currentId === sheet.id) view.dispatch({ effects: dialectCompartment.reconfigure(sqlExt()) });
 	});
 
 	$effect(() => {

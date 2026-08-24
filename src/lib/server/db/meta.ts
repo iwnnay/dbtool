@@ -5,6 +5,11 @@
  * have to switch databases.
  */
 import { ensureBridge, type QueryResult } from './bridgeManager';
+import { getConnection } from '$lib/server/store';
+import {
+	dialectDefinition, dialectProperties, dialectTableDetail, listDialectColumns,
+	listDialectDatabases, listDialectObjects, searchDialectColumns
+} from './dialectMeta';
 import { ignoreSet, isIgnored } from '../ignore';
 
 function bracket(name: string): string {
@@ -28,6 +33,9 @@ export interface DatabaseInfo {
 }
 
 export async function listDatabases(server: string): Promise<DatabaseInfo[]> {
+	const profile = getConnection(server);
+	if (!profile) throw new Error(`Unknown connection: ${server}`);
+	if (profile.type !== 'mssql') return listDialectDatabases(profile);
 	const res = await metaQuery(
 		server,
 		`SELECT name, CASE WHEN database_id <= 4 THEN 1 ELSE 0 END AS is_system
@@ -46,6 +54,9 @@ export interface DbObject {
 const OBJECT_TYPES: Record<string, DbObject['type']> = { U: 'table', V: 'view', P: 'procedure' };
 
 export async function listObjects(server: string, database: string): Promise<DbObject[]> {
+	const profile = getConnection(server);
+	if (!profile) throw new Error(`Unknown connection: ${server}`);
+	if (profile.type !== 'mssql') return listDialectObjects(profile, database);
 	const db = bracket(database);
 	const res = await metaQuery(
 		server,
@@ -70,6 +81,9 @@ export async function objectDefinition(
 	schema: string,
 	name: string
 ): Promise<string> {
+	const profile = getConnection(server);
+	if (!profile) throw new Error(`Unknown connection: ${server}`);
+	if (profile.type !== 'mssql') return dialectDefinition(profile, database, schema, name);
 	const db = bracket(database);
 	const res = await metaQuery(
 		server,
@@ -106,6 +120,9 @@ export async function listColumns(
 	schema: string,
 	table: string
 ): Promise<ColumnInfo[]> {
+	const profile = getConnection(server);
+	if (!profile) throw new Error(`Unknown connection: ${server}`);
+	if (profile.type !== 'mssql') return listDialectColumns(profile, database, schema, table);
 	const db = bracket(database);
 	const objectId = `OBJECT_ID(${quote(`${bracket(database)}.${bracket(schema)}.${bracket(table)}`)})`;
 	const res = await metaQuery(
@@ -177,6 +194,9 @@ export async function tableDetail(
 	schema: string,
 	table: string
 ): Promise<TableDetail> {
+	const profile = getConnection(server);
+	if (!profile) throw new Error(`Unknown connection: ${server}`);
+	if (profile.type !== 'mssql') return dialectTableDetail(profile, database, schema, table);
 	const db = bracket(database);
 	const fullName = quote(`${bracket(database)}.${bracket(schema)}.${bracket(table)}`);
 	const res = await metaQuery(
@@ -379,6 +399,9 @@ export async function searchColumns(
 	database: string,
 	prefix: string
 ): Promise<ColumnSearchHit[]> {
+	const profile = getConnection(server);
+	if (!profile) throw new Error(`Unknown connection: ${server}`);
+	if (profile.type !== 'mssql') return searchDialectColumns(profile, database, prefix);
 	const db = bracket(database);
 	const like = prefix.replace(/[\\%_[]/g, (c) => `\\${c}`).replace(/'/g, "''");
 	const res = await metaQuery(
@@ -424,6 +447,9 @@ export interface DbProperties {
 }
 
 export async function dbProperties(server: string, database: string): Promise<DbProperties> {
+	const profile = getConnection(server);
+	if (!profile) throw new Error(`Unknown connection: ${server}`);
+	if (profile.type !== 'mssql') return dialectProperties(profile, database);
 	const db = bracket(database);
 	const res = await metaQuery(
 		server,

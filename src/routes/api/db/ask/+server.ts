@@ -4,6 +4,7 @@ import { FlowService, FlowCancelled, bindCancelSignal, runWithStreamFunnel } fro
 import { loadDatamap, buildAskContext } from '$lib/server/db/datamap';
 import { tableDetail, formatTableContext } from '$lib/server/db/meta';
 import { askModelStatus } from '$lib/server/llm/model';
+import { getConnection } from '$lib/server/store';
 
 export type AskScope = 'general' | 'database' | 'table';
 
@@ -47,6 +48,11 @@ async function resolveRun(body: AskBody): Promise<AskRun> {
 	if (!body.server || !body.database) {
 		throw new Error(`server and database are required for a ${scope}-scoped ask`);
 	}
+	const profile = getConnection(body.server);
+	if (!profile) throw new Error(`Unknown connection: ${body.server}`);
+	const dialect = profile.type === 'mssql'
+		? 'Microsoft SQL Server T-SQL'
+		: profile.type === 'postgres' ? 'PostgreSQL' : 'SQLite';
 
 	if (scope === 'table') {
 		if (!body.schema || !body.table) {
@@ -60,6 +66,7 @@ async function resolveRun(body: AskBody): Promise<AskRun> {
 			flowName,
 			inputs: {
 				...base,
+				dialect,
 				database: body.database,
 				table: `${detail.schema}.${detail.name}`,
 				context: formatTableContext(body.server, body.database, detail, description)
@@ -77,6 +84,7 @@ async function resolveRun(body: AskBody): Promise<AskRun> {
 		flowName,
 		inputs: {
 			...base,
+			dialect,
 			database: body.database,
 			context: buildAskContext(map, userQuery)
 		}

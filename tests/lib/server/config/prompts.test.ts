@@ -10,6 +10,7 @@ import {
 const ASK_VARIABLES = {
 	context: '# Table: dbo.Patient\nPatientId int NOT NULL PRIMARY KEY',
 	database: 'NGDev',
+	dialect: 'Microsoft SQL Server T-SQL',
 	table: 'dbo.Patient',
 	user_query: 'how many rows are there?'
 };
@@ -21,6 +22,7 @@ describe('ask prompt config', () => {
 
 	it('defines the sql_expert agent', () => {
 		expect(loadAgentsConfig().sql_expert.role).toContain('SQL Server');
+		expect(loadAgentsConfig().sql_expert.role).toContain('PostgreSQL');
 	});
 
 	it('defines one task per ask scope', () => {

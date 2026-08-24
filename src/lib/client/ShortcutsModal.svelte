@@ -20,6 +20,10 @@
 		{
 			title: 'Editing',
 			shortcuts: [
+				{ keys: ['Tab'], what: 'Accept autocomplete; otherwise indent the current line' },
+				{ keys: ['Shift', 'Tab'], what: 'Move down autocomplete; otherwise outdent the line' },
+				{ keys: ['Enter'], what: 'Insert a new line without accepting autocomplete' },
+				{ keys: ['Ctrl', 'J'], what: 'Join the line below to the current line' },
 				{ keys: ['Ctrl', 'D'], what: 'Duplicate the current line' },
 				{ keys: ['Ctrl', 'Shift', 'D'], what: 'Select the next occurrence of the selection' },
 				{ keys: ['Ctrl', 'Alt', '↓'], what: 'Add a cursor on the line below' },
@@ -42,7 +46,7 @@
 		{
 			title: 'Explorer',
 			shortcuts: [
-				{ keys: ['Double-click'], what: 'Table — insert SELECT TOP (100)' },
+				{ keys: ['Double-click'], what: 'Table — insert a 100-row SELECT' },
 				{ keys: ['Double-click'], what: 'Procedure — open its definition in a new sheet' },
 				{ keys: ['Double-click'], what: 'Column — insert the column name at the cursor' },
 				{ keys: ['Double-click'], what: 'Database — point the current sheet at it' },

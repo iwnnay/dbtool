@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest';
-import { parseTableRefs, zoneAt } from './columnCompletion';
+import { EditorState } from '@codemirror/state';
+import { sql, MSSQL } from '@codemirror/lang-sql';
+import { isInSqlComment, parseTableRefs, zoneAt } from '$lib/client/columnCompletion';
+
+describe('isInSqlComment', () => {
+	const at = (source: string) => {
+		const pos = source.indexOf('|');
+		const state = EditorState.create({
+			doc: source.replace('|', ''),
+			extensions: sql({ dialect: MSSQL })
+		});
+		return isInSqlComment(state, pos);
+	};
+
+	it('detects line and block comments', () => {
+		expect(at('SELECT * -- pat|')).toBe(true);
+		expect(at('SELECT /* pat|ient */ *')).toBe(true);
+	});
+
+	it('allows completion after a comment ends', () => {
+		expect(at('SELECT * -- patient\npat|')).toBe(false);
+		expect(at('SELECT /* patient */ pat|')).toBe(false);
+	});
+
+	it('does not mistake comment markers inside strings for comments', () => {
+		expect(at("SELECT '-- not a comment', pat|")).toBe(false);
+	});
+});
 
 describe('parseTableRefs', () => {
 	it('parses plain FROM', () => {

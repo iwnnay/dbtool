@@ -1,8 +1,9 @@
 <script lang="ts">
 	import Modal from './Modal.svelte';
 	import { api, type ColumnInfo } from './api';
-	import { catalog, bracket } from './catalog.svelte';
+	import { catalog } from './catalog.svelte';
 	import { app } from './app.svelte';
+	import { qualifyObject, quoteIdentifier } from '$lib/db/types';
 
 	let {
 		server,
@@ -31,6 +32,7 @@
 	let error = $state('');
 	let running = $state(false);
 	let success = $state(false);
+	const engine = $derived(app.connection(server)?.type ?? 'mssql');
 
 	const colKey = $derived(`${server}|${database}|${schema}|${table}`);
 
@@ -44,7 +46,7 @@
 	});
 
 	const NUMERIC = new Set([
-		'int', 'bigint', 'smallint', 'tinyint', 'decimal', 'numeric', 'float', 'real', 'money', 'smallmoney'
+		'int', 'integer', 'bigint', 'smallint', 'tinyint', 'decimal', 'numeric', 'float', 'real', 'double precision', 'money', 'smallmoney'
 	]);
 	const NSTRING = new Set(['nvarchar', 'nchar', 'ntext', 'sysname']);
 	const BINARY = new Set(['binary', 'varbinary', 'image']);
@@ -58,10 +60,10 @@
 			}
 			return v.trim();
 		}
-		if (t === 'bit') {
+		if (t === 'bit' || t === 'boolean') {
 			const b = v.trim().toLowerCase();
-			if (['1', 'true'].includes(b)) return '1';
-			if (['0', 'false'].includes(b)) return '0';
+			if (['1', 'true'].includes(b)) return engine === 'postgres' ? 'TRUE' : '1';
+			if (['0', 'false'].includes(b)) return engine === 'postgres' ? 'FALSE' : '0';
 			throw new Error(`"${f.col.name}": bit must be 0/1/true/false`);
 		}
 		if (BINARY.has(t)) {
@@ -75,14 +77,13 @@
 	}
 
 	function target(qualified: boolean): string {
-		const st = `${bracket(schema)}.${bracket(table)}`;
-		return qualified ? `${bracket(database)}.${st}` : st;
+		return qualifyObject(engine, schema, table, qualified ? database : undefined);
 	}
 
 	function buildSql(qualified: boolean): string {
 		const included = fields.filter((f) => f.mode !== 'default');
 		if (included.length === 0) return `INSERT INTO ${target(qualified)} DEFAULT VALUES;`;
-		const names = included.map((f) => bracket(f.col.name)).join(', ');
+		const names = included.map((f) => quoteIdentifier(engine, f.col.name)).join(', ');
 		const values = included.map((f) => (f.mode === 'null' ? 'NULL' : literal(f))).join(', ');
 		return `INSERT INTO ${target(qualified)} (${names})\nVALUES (${values});`;
 	}
@@ -90,7 +91,7 @@
 	/** Two-part name if the active sheet is already on this server+db, else three-part. */
 	function sheetQualified(): boolean {
 		const s = app.activeSheet;
-		return !(s && s.server === server && s.database === database);
+		return engine === 'mssql' && !(s && s.server === server && s.database === database);
 	}
 
 	function addQuery() {

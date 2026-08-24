@@ -14,6 +14,8 @@ import { createHash } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { FlowService } from 'nacelle-core/server';
 import { ensureBridge } from './bridgeManager';
+import { getConnection } from '$lib/server/store';
+import { listObjects, listColumns, tableDetail, formatType } from './meta';
 import { ignoreSet, isIgnored } from '../ignore';
 
 const DATAMAP_DIR = path.resolve(process.cwd(), 'data', 'datamaps');
@@ -71,6 +73,24 @@ function bracket(name: string): string {
 
 /** One round trip: every table with row count, PK columns and column list. */
 async function schemaSnapshot(server: string, database: string): Promise<DatamapTable[]> {
+	const profile = getConnection(server);
+	if (!profile) throw new Error(`Unknown connection: ${server}`);
+	if (profile.type !== 'mssql') {
+		const ignored = ignoreSet(server, database);
+		const objects = (await listObjects(server, database)).filter(
+			(object) => object.type === 'table' && !isIgnored(ignored, object.schema, object.name)
+		);
+		const snapshots: DatamapTable[] = [];
+		for (const object of objects) {
+			const columns = await listColumns(server, database, object.schema, object.name);
+			const detail = await tableDetail(server, database, object.schema, object.name);
+			const columnText = columns.map((column) => `${column.name} ${formatType(column)}`).join(', ');
+			const pk = columns.filter((column) => column.isPk).map((column) => column.name).join(', ') || null;
+			const fingerprint = createHash('sha1').update(`${pk}|${columnText}`).digest('hex').slice(0, 16);
+			snapshots.push({ schema: object.schema, name: object.name, rowCount: detail.rowCount ?? 0, pk, columns: columnText, hash: fingerprint });
+		}
+		return snapshots.sort((a, b) => b.rowCount - a.rowCount);
+	}
 	const db = bracket(database);
 	const bridge = await ensureBridge(`meta:${server}`, server, 'master');
 	const res = await bridge.query(

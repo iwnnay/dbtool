@@ -4,6 +4,8 @@ import { ensureBridge, type SqlResultSet } from '$lib/server/db/bridgeManager';
 import { getSheet, updateSheet } from '$lib/server/store';
 import { recordRun } from '$lib/server/history';
 import { splitBatches } from '$lib/sql/split';
+import { allStatements } from '$lib/sql/split';
+import { getConnection } from '$lib/server/store';
 
 export interface RunResultSet extends SqlResultSet {
 	sourceSql: string;
@@ -39,6 +41,8 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (!sheetId || !server || !database || sql == null) {
 		return json({ error: 'sheetId, server, database, sql required' }, { status: 400 });
 	}
+	const profile = getConnection(server);
+	if (!profile) return json({ error: `Unknown connection: ${server}` }, { status: 400 });
 
 	// Auto-save the sheet before running — a crash mid-query loses nothing.
 	if (typeof fullSql === 'string') {
@@ -78,7 +82,12 @@ export const POST: RequestHandler = async ({ request }) => {
 		return json(out);
 	}
 
-	for (const batch of splitBatches(sql)) {
+	const batches = profile.type === 'mssql'
+		? splitBatches(sql)
+		: profile.type === 'sqlite'
+			? allStatements(sql)
+			: [{ start: 0, end: sql.length, text: sql }];
+	for (const batch of batches) {
 		// Error line numbers from SQL Server are relative to the batch; shift
 		// them so they point into the text the user actually ran.
 		const lineOffset = sql.slice(0, batch.start).split('\n').length - 1;

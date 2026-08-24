@@ -1,8 +1,8 @@
 # dbtool
 
-A browser-based SQL Server query tool — a fast, dark, keyboard-first alternative to
-SSMS. SvelteKit single-port app; queries run with **your Windows identity**
-(Integrated Security), no passwords anywhere.
+A browser-based SQL Server, PostgreSQL, and SQLite query tool — a fast, dark,
+keyboard-first home for everyday database exploration. SQL Server continues to
+run with **your Windows identity** (Integrated Security).
 
 ## Run
 
@@ -15,7 +15,7 @@ Production: `npm run build` then `node build`.
 
 ## Features
 
-- **Explorer tree** — servers → databases → schemas → tables/views → columns
+- **Explorer tree** — connections → databases → schemas → tables/views → columns
   (types, PK 🔑, `•` = NOT NULL). Double-click a database to point the current
   sheet at it; double-click a table to insert `SELECT TOP (100)`.
 - **Table search** — instant, client-side, across every database you've expanded
@@ -54,11 +54,11 @@ Production: `npm run build` then `node build`.
 
 Right-click a database → **Ask** to chat with local Ollama about it in plain
 English ("find all patients with a last name starting with zzz and an ICD code
-of I50.9") and get runnable T-SQL with an *Add to sheet* button.
+of I50.9") and get runnable SQL in the active connection's dialect with an *Add to sheet* button.
 
 Grounding comes from a per-database **datamap** in `data/datamaps/` (gitignored):
-a full schema snapshot (every table: row count, PK, columns — one STRING_AGG
-round trip) where each table is fingerprinted, plus one-line table descriptions
+a full schema snapshot (every table: row count, PK, and columns) where each table
+is fingerprinted, plus one-line table descriptions
 written by Ollama in batches (largest `DATAMAP_DESCRIBE_LIMIT` tables, since the
 tail of a 9000-table DB is empty templates). Rebuilds are incremental: only
 new/schema-changed tables are re-described. The Ask prompt packs
@@ -66,7 +66,29 @@ question-relevant tables first, then the largest, capped at ~70k chars — so ev
 huge databases stay grounded. Model/URL config in `.env` (see `.env.example`);
 the model auto-detects from installed Ollama models if unset.
 
-## How Windows Auth works (the important part)
+## Database connections
+
+Click **+** in Database Explorer and choose an engine:
+
+- **SQL Server** uses the persistent PowerShell/.NET SqlClient bridge and Windows
+  integrated authentication.
+- **PostgreSQL** uses a persistent `pg` client per sheet. Supply host, port, user,
+  initial database and optional TLS. For passwords, enter the **name** of an
+  environment variable (for example `DBTOOL_PG_PASSWORD`) and set that variable
+  before starting dbtool; password values are never stored in `data/config.json`.
+- **SQLite** takes a database file path and can be opened read-only. It runs in a
+  separate persistent Node worker, preserving per-sheet temp/session state and
+  allowing cancellation without blocking the web process.
+
+Existing configs containing the original `servers: string[]` shape migrate
+automatically. Existing sheets retain their connection because the old server
+name becomes the stable connection ID.
+
+Generated SQL, identifier quoting, editor highlighting, metadata, row editing,
+datamaps, and Ask prompts follow the selected engine. Engine-specific features
+are shown only where they exist (SQLite, for example, has no procedures).
+
+## How Windows Auth works
 
 Browsers can't speak TDS, and on Node 24 the native SQL drivers are broken for
 passwordless Windows auth (`msnodesqlv8` hangs; `tedious` can't do it — see
@@ -80,9 +102,11 @@ Cancel = kill the bridge; the next run respawns it transparently.
 
 ```
 scripts/sql-bridge.ps1            the persistent SQL worker (auth lives here)
+scripts/db-worker.mjs             persistent PostgreSQL/SQLite worker
 src/lib/server/db/bridgeManager.ts  spawn/queue/timeout/cancel of bridges
 src/lib/server/db/meta.ts           catalog queries for the explorer tree
-src/lib/server/store.ts             ./data persistence (servers, sheets)
+src/lib/server/db/dialectMeta.ts    PostgreSQL/SQLite catalog adapters
+src/lib/server/store.ts             ./data persistence (connections, sheets)
 src/lib/sql/split.ts                GO/; statement splitter (shared, tested)
 src/lib/client/                     UI: Explorer, Editor (CodeMirror 6), Grid…
 src/routes/api/db/*                 servers/databases/objects/columns/run/cancel
@@ -90,7 +114,7 @@ src/routes/api/sheets/*             sheet CRUD
 data/                               (gitignored) config.json + sheets/*.json
 ```
 
-Registered servers live in `data/config.json` — edit there or use the `+` button
+Registered connections live in `data/config.json` — edit there or use the `+` button
 in the explorer.
 
 ## nacelle

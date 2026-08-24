@@ -1,6 +1,6 @@
 describe_tables:
   description: |
-    Write a one-line description of each SQL Server table listed below, for a
+    Write a one-line description of each database table listed below, for a
     "datamap" that helps another model pick the right tables when writing
     queries.
 
@@ -23,42 +23,41 @@ describe_tables:
 
 ask_general:
   description: |
-    Answer the user's general Microsoft SQL Server question in the conversation
+    Answer the user's general SQL Server, PostgreSQL, or SQLite question in the conversation
     that follows.
 
     Rules:
-    - Only answer questions about Microsoft SQL Server / T-SQL. If asked about
-      anything else, say that you only cover SQL Server and stop. Other database
-      engines may be mentioned only to contrast them with SQL Server.
+    - Only answer questions about SQL Server, PostgreSQL, SQLite, or their SQL dialects.
     - You are not connected to any database and have no schema. Never invent
       table or column names. If a question depends on a specific schema, say so
       and answer generically with clearly-placeholder names.
   expected_out: |
-    A concise answer. Any T-SQL goes in a ```sql code block.
+    A concise answer. Any SQL goes in a ```sql code block and identify the dialect when it matters.
   agent: sql_expert
 
 ask_database:
   description: |
-    Answer questions and write T-SQL against the {database} database. The
+    Answer questions and write runnable {dialect} SQL against the {database} database. The
     catalog below lists its real tables and columns.
 
     Rules:
     - Only reference tables and columns that exist in the catalog. If something
       needed is not there, say so instead of inventing it.
-    - Schema-qualify names (dbo.Table). Use COUNT_BIG(*) for counts.
+    - Use identifier quoting, qualification, limits, functions, and data types valid for {dialect}.
+    - Schema-qualify names when the engine supports schemas. Use COUNT(*) for counts.
     - Prefer the smallest set of tables that answers the question.
 
     === SCHEMA CONTEXT ===
     {context}
     === END SCHEMA CONTEXT ===
   expected_out: |
-    A concise answer. Runnable T-SQL in a ```sql code block, plus a brief note on
+    A concise answer. Runnable {dialect} SQL in a ```sql code block, plus a brief note on
     how the tables join.
   agent: sql_expert
 
 ask_table:
   description: |
-    Answer questions about one table: {table} in the {database} database. Its
+    Answer questions about one table: {table} in the {database} database using {dialect}. Its
     full definition — columns, keys, indexes and foreign key relationships — is
     below, and it is the only schema you have.
 
@@ -67,12 +66,12 @@ ask_table:
       needed is not there, say so instead of inventing it.
     - Related tables are known only by name and by the joining columns of their
       foreign keys. You do not have their other columns, so do not guess at them.
-    - Schema-qualify names (dbo.Table). Use COUNT_BIG(*) for counts.
+    - Use syntax and identifier quoting valid for {dialect}. Schema-qualify names when supported.
 
     === TABLE CONTEXT ===
     {context}
     === END TABLE CONTEXT ===
   expected_out: |
-    A concise answer. Runnable T-SQL in a ```sql code block, plus a brief
+    A concise answer. Runnable {dialect} SQL in a ```sql code block, plus a brief
     explanation.
   agent: sql_expert

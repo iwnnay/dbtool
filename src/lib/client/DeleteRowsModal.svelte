@@ -40,7 +40,8 @@
 			resolving = false;
 			return;
 		}
-		const refs = parseTableRefs(sourceSql);
+		const engine = app.connection(sheet.server)?.type ?? 'mssql';
+		const refs = parseTableRefs(sourceSql, engine === 'sqlite' ? 'main' : engine === 'postgres' ? 'public' : 'dbo');
 		if (refs.length === 0) {
 			error = `Cannot build a DELETE — no table was found in the statement that produced "${tab.label}"`;
 			resolving = false;
@@ -63,9 +64,9 @@
 				continue;
 			}
 			const sameDatabase = database.toLowerCase() === sheet.database.toLowerCase();
-			const qualified = qualifyTable(ref.schema, ref.table, sameDatabase ? undefined : database);
+			const qualified = qualifyTable(ref.schema, ref.table, sameDatabase ? undefined : database, engine);
 			try {
-				sql = buildDeleteSql(qualified, lookup.keyColumns, tab.resultSet, rowIndexes);
+				sql = buildDeleteSql(qualified, lookup.keyColumns, tab.resultSet, rowIndexes, engine);
 				target = qualified;
 			} catch (caught) {
 				error = (caught as Error).message;

@@ -49,7 +49,8 @@
 
 	function setServer(server: string) {
 		const s = app.activeSheet;
-		if (s) void app.patchSheet(s.id, { server, database: '' });
+		const connection = app.connection(server);
+		if (s) void app.patchSheet(s.id, { server, database: connection?.type === 'sqlite' ? 'main' : '' });
 	}
 	function setDatabase(database: string) {
 		const s = app.activeSheet;
@@ -104,10 +105,10 @@
 		<div class="logo">db<span>tool</span></div>
 		{#if app.activeSheet}
 			{@const sheet = app.activeSheet}
-			<select value={sheet.server} onchange={(e) => setServer(e.currentTarget.value)} title="Server">
-				<option value="" disabled>server…</option>
-				{#each app.servers as s (s)}
-					<option value={s}>{s}</option>
+			<select value={sheet.server} onchange={(e) => setServer(e.currentTarget.value)} title="Connection">
+				<option value="" disabled>connection…</option>
+				{#each app.connections as connection (connection.id)}
+					<option value={connection.id}>{connection.name} ({connection.type})</option>
 				{/each}
 			</select>
 			<select
@@ -145,7 +146,7 @@
 		<button
 			class="ask-btn"
 			onclick={() => (askOpen = true)}
-			title="Ask general SQL Server questions (no database context)"
+			title="Ask general database questions (no database context)"
 		>
 			✦ Ask
 		</button>
@@ -241,7 +242,7 @@
 	<footer class="statusbar">
 		{#if app.activeSheet}
 			{@const s = app.activeSheet}
-			<span class="seg accent">{s.server || 'no server'}</span>
+			<span class="seg accent">{app.connection(s.server)?.name || 'no connection'}</span>
 			<span class="seg">{s.database || 'no database'}</span>
 			<span class="seg">{running ? 'Executing…' : 'Ready'}</span>
 			{#if app.flashMsg}

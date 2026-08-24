@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allStatements, splitBatches, splitStatements, statementAt } from './split';
+import { allStatements, splitBatches, splitStatements, statementAt } from '$lib/sql/split';
 
 describe('splitBatches', () => {
 	it('returns whole text as one batch without GO', () => {

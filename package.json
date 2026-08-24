@@ -18,10 +18,14 @@
     "nacelle:update": "node scripts/nacelle-install.js --update"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-sql": "^6.10.0",
+    "@types/pg": "^8.23.1",
     "codemirror": "^6.0.2",
     "exceljs": "^4.4.0",
-    "nacelle-core": "file:nacelle/nacelle-core"
+    "nacelle-core": "file:nacelle/nacelle-core",
+    "pg": "^8.23.0"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.2.0",

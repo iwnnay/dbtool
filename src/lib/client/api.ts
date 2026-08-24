@@ -1,4 +1,6 @@
 /** Thin typed fetch wrappers over the /api/db and /api/sheets endpoints. */
+import type { ConnectionProfile, ConnectionProfileInput, DatabaseEngine } from '$lib/db/types';
+export type { ConnectionProfile, ConnectionProfileInput, DatabaseEngine } from '$lib/db/types';
 
 export interface SqlColumn {
 	name: string;
@@ -122,11 +124,11 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-	servers: () => req<{ servers: string[] }>('/api/db/servers'),
-	addServer: (name: string) =>
-		req<{ servers: string[] }>('/api/db/servers', { method: 'POST', body: JSON.stringify({ name }) }),
-	removeServer: (name: string) =>
-		req<{ servers: string[] }>(`/api/db/servers?name=${encodeURIComponent(name)}`, {
+	connections: () => req<{ connections: ConnectionProfile[] }>('/api/db/servers'),
+	addConnection: (connection: ConnectionProfileInput & { id?: string }) =>
+		req<{ connections: ConnectionProfile[] }>('/api/db/servers', { method: 'POST', body: JSON.stringify(connection) }),
+	removeConnection: (id: string) =>
+		req<{ connections: ConnectionProfile[] }>(`/api/db/servers?id=${encodeURIComponent(id)}`, {
 			method: 'DELETE'
 		}),
 	databases: (server: string) =>
