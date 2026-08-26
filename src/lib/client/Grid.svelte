@@ -3,9 +3,11 @@
 </script>
 
 <script lang="ts">
+	import { tick } from 'svelte';
 	import type { SqlResultSet } from './api';
 	import ContextMenu, { type MenuItem } from './ContextMenu.svelte';
 	import { copyRangeTsv, type CellRange } from './export';
+	import { findCells, nextSort, sortRows, type SortSpec } from './resultGrid';
 
 	let {
 		rs,
@@ -25,6 +27,17 @@
 	let viewport: HTMLDivElement | undefined = $state();
 	let scrollTop = $state(0);
 	let viewH = $state(300);
+	let sorts: SortSpec[] = $state([]);
+	let findOpen = $state(false);
+	let findQuery = $state('');
+	let currentMatch = $state(0);
+	let findInput: HTMLInputElement | undefined = $state();
+
+	const displayedRows = $derived(sortRows(rs.rows, sorts));
+	const displayedResult = $derived({ ...rs, rows: displayedRows.map((entry) => entry.row) });
+	const matches = $derived(findCells(displayedRows, findQuery));
+	const matchKeys = $derived(new Set(matches.map((match) => `${match.row}:${match.col}`)));
+	const activeMatch = $derived(matches[currentMatch] ?? null);
 
 	// Column widths estimated from header + a sample of rows (monospace ~7.3px/ch)
 	const widths = $derived.by(() => {
@@ -41,8 +54,8 @@
 	const totalW = $derived(widths.reduce((a, b) => a + b, 0) + RN_W);
 
 	const first = $derived(Math.max(0, Math.floor(scrollTop / ROW_H) - 8));
-	const last = $derived(Math.min(rs.rows.length, Math.ceil((scrollTop + viewH) / ROW_H) + 8));
-	const visible = $derived(rs.rows.slice(first, last));
+	const last = $derived(Math.min(displayedRows.length, Math.ceil((scrollTop + viewH) / ROW_H) + 8));
+	const visible = $derived(displayedRows.slice(first, last));
 
 	interface CellRef {
 		row: number;
@@ -57,7 +70,7 @@
 	let pointerX = 0;
 	let pointerY = 0;
 
-	const lastRow = $derived(Math.max(rs.rows.length - 1, 0));
+	const lastRow = $derived(Math.max(displayedRows.length - 1, 0));
 	const lastCol = $derived(Math.max(rs.columns.length - 1, 0));
 
 	const range: CellRange | null = $derived.by(() => {
@@ -76,6 +89,15 @@
 		void rs;
 		anchor = null;
 		head = null;
+		sorts = [];
+		findQuery = '';
+		findOpen = false;
+	});
+
+	$effect(() => {
+		void matches;
+		currentMatch = 0;
+		if (findQuery && matches.length) void tick().then(() => scrollToMatch(0));
 	});
 
 	function inRange(rowIndex: number, colIndex: number): boolean {
@@ -175,13 +197,20 @@
 
 	async function copySelection(withHeaders: boolean) {
 		if (!range) return;
-		await copyRangeTsv(rs, range, withHeaders);
+		await copyRangeTsv(displayedResult, range, withHeaders);
 	}
 
 	function onKeydown(event: KeyboardEvent) {
 		if (!event.ctrlKey && !event.metaKey) return;
 		const key = event.key.toLowerCase();
-		if (key === 'a') {
+		if (key === 'f') {
+			event.preventDefault();
+			findOpen = true;
+			void tick().then(() => {
+				findInput?.focus();
+				findInput?.select();
+			});
+		} else if (key === 'a') {
 			event.preventDefault();
 			selectAll();
 		} else if (key === 'c' && range) {
@@ -213,7 +242,8 @@
 		if (onRowNumber && onDeleteRows && range) {
 			const rowIndexes: number[] = [];
 			for (let selected = range.top; selected <= range.bottom; selected++) {
-				if (!deletedRows?.has(selected)) rowIndexes.push(selected);
+				const originalIndex = displayedRows[selected]?.originalIndex;
+				if (originalIndex != null && !deletedRows?.has(originalIndex)) rowIndexes.push(originalIndex);
 			}
 			if (rowIndexes.length > 0) {
 				items.push({
@@ -254,8 +284,48 @@
 	});
 
 	async function copyCell(r: number, c: number) {
-		const v = rs.rows[r]?.[c];
+		const v = displayedRows[r]?.row[c];
 		await navigator.clipboard.writeText(v == null ? 'NULL' : String(v));
+	}
+
+	function toggleSort(column: number, additive: boolean) {
+		sorts = nextSort(sorts, column, additive);
+		anchor = null;
+		head = null;
+		if (viewport) viewport.scrollTop = 0;
+	}
+
+	function sortFor(column: number): { direction: 'asc' | 'desc'; priority: number } | null {
+		const priority = sorts.findIndex((sort) => sort.column === column);
+		return priority < 0 ? null : { direction: sorts[priority].direction, priority: priority + 1 };
+	}
+
+	function scrollToMatch(index: number) {
+		if (!matches.length || !viewport) return;
+		currentMatch = (index + matches.length) % matches.length;
+		const match = matches[currentMatch];
+		viewport.scrollTop = Math.max(0, match.row * ROW_H - Math.max(ROW_H, (viewH - ROW_H) / 2));
+		let left = RN_W;
+		for (let column = 0; column < match.col; column++) left += widths[column];
+		const right = left + widths[match.col];
+		if (left < viewport.scrollLeft + RN_W) viewport.scrollLeft = Math.max(0, left - RN_W);
+		else if (right > viewport.scrollLeft + viewport.clientWidth) viewport.scrollLeft = right - viewport.clientWidth;
+	}
+
+	function onFindKeydown(event: KeyboardEvent) {
+		event.stopPropagation();
+		if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
+			event.preventDefault();
+			findInput?.select();
+		} else if (event.key === 'Enter') {
+			event.preventDefault();
+			scrollToMatch(currentMatch + (event.shiftKey ? -1 : 1));
+		} else if (event.key === 'Escape') {
+			event.preventDefault();
+			findOpen = false;
+			findQuery = '';
+			viewport?.focus();
+		}
 	}
 </script>
 
@@ -270,36 +340,52 @@
 	onkeydown={onKeydown}
 	oncontextmenu={onContextMenu}
 >
-	<div class="grid-inner" style="width:{totalW}px; height:{rs.rows.length * ROW_H + ROW_H}px;">
+	{#if findOpen}
+		<div class="findbar" role="search">
+			<input bind:this={findInput} bind:value={findQuery} onkeydown={onFindKeydown} placeholder="Search all results" aria-label="Search all result cells" />
+			<span class="find-count">{matches.length ? `${currentMatch + 1} / ${matches.length}` : '0 / 0'}</span>
+			<button title="Previous match (Shift+Enter)" onclick={() => scrollToMatch(currentMatch - 1)} disabled={!matches.length}>↑</button>
+			<button title="Next match (Enter)" onclick={() => scrollToMatch(currentMatch + 1)} disabled={!matches.length}>↓</button>
+			<button title="Close search (Escape)" onclick={() => { findOpen = false; findQuery = ''; viewport?.focus(); }}>×</button>
+		</div>
+	{/if}
+	<div class="grid-inner" style="width:{totalW}px; height:{displayedRows.length * ROW_H + ROW_H}px;">
 		<div class="grid-header" style="width:{totalW}px;" role="row">
 			<div class="cell rn head" style="width:{RN_W}px;"></div>
 			{#each rs.columns as col, ci (ci)}
+				{@const sort = sortFor(ci)}
 				<div
 					class="cell head"
+					class:sorted={!!sort}
 					class:headsel={!!range && ci >= range.left && ci <= range.right}
 					style="width:{widths[ci]}px;"
-					title={col.type}
+					title={`${col.type} · Click to sort; Shift+click for multi-column sort`}
 					role="columnheader"
-					tabindex="-1"
-					onmousedown={(event) => {
-						if (event.button !== 0) return;
-						selectColumns(ci, event.shiftKey);
-						startDrag('col', event);
+					tabindex="0"
+					onclick={(event) => toggleSort(ci, event.shiftKey)}
+					onkeydown={(event) => {
+						if (event.key === 'Enter' || event.key === ' ') {
+							event.preventDefault();
+							toggleSort(ci, event.shiftKey);
+						}
 					}}
 				>
-					{col.name || '(no name)'}
+					<span class="head-label">{col.name || '(no name)'}</span>
+					{#if sort}<span class="sort-mark">{sort.direction === 'asc' ? '▲' : '▼'}{sorts.length > 1 ? sort.priority : ''}</span>{/if}
 				</div>
 			{/each}
 		</div>
-		{#each visible as row, vi (first + vi)}
+		{#each visible as rowEntry, vi (rowEntry.originalIndex)}
 			{@const r = first + vi}
+			{@const row = rowEntry.row}
+			{@const originalRow = rowEntry.originalIndex}
 			<div
 				class="grid-row"
 				class:odd={r % 2 === 1}
-				class:deleted={deletedRows?.has(r)}
+				class:deleted={deletedRows?.has(originalRow)}
 				style="top:{r * ROW_H + ROW_H}px;"
 				role="row"
-				title={deletedRows?.has(r) ? 'Row deleted from the table' : undefined}
+				title={deletedRows?.has(originalRow) ? 'Row deleted from the table' : undefined}
 			>
 				<div
 					class="cell rn"
@@ -321,6 +407,8 @@
 						class:num={typeof v === 'number'}
 						class:sel={inRange(r, ci)}
 						class:anchored={anchor?.row === r && anchor?.col === ci}
+						class:match={matchKeys.has(`${r}:${ci}`)}
+						class:current-match={activeMatch?.row === r && activeMatch?.col === ci}
 						style="width:{widths[ci]}px;"
 						role="gridcell"
 						tabindex="-1"
@@ -359,6 +447,43 @@
 	.grid-inner {
 		position: relative;
 	}
+	.findbar {
+		position: absolute;
+		top: 4px;
+		right: 12px;
+		z-index: 8;
+		display: flex;
+		align-items: center;
+		gap: 4px;
+		padding: 4px;
+		background: var(--panel);
+		border: 1px solid var(--border-strong);
+		border-radius: 6px;
+		box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+		font-family: var(--sans);
+	}
+	.findbar input {
+		width: 220px;
+		background: var(--bg);
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		color: var(--text);
+		font-size: 12px;
+		padding: 4px 7px;
+		outline: none;
+	}
+	.findbar input:focus { border-color: var(--accent); }
+	.findbar button {
+		background: transparent;
+		border: none;
+		border-radius: 3px;
+		color: var(--text);
+		cursor: pointer;
+		padding: 2px 6px;
+	}
+	.findbar button:hover:not(:disabled) { background: var(--panel2); }
+	.findbar button:disabled { opacity: 0.35; cursor: default; }
+	.find-count { min-width: 56px; color: var(--muted); font-size: 11px; text-align: center; }
 	.grid-header {
 		position: sticky;
 		top: 0;
@@ -406,6 +531,9 @@
 		position: sticky;
 		top: 0;
 	}
+	.cell.head.sorted { color: var(--accent); }
+	.head-label { overflow: hidden; text-overflow: ellipsis; }
+	.sort-mark { margin-left: 6px; font-size: 9px; color: var(--accent); }
 	.cell.rn {
 		position: sticky;
 		left: 0;
@@ -438,5 +566,14 @@
 	.cell.anchored {
 		outline: 1px solid var(--accent);
 		outline-offset: -1px;
+	}
+	.cell.match {
+		background: rgba(232, 180, 94, 0.2) !important;
+		box-shadow: inset 0 0 0 1px rgba(232, 180, 94, 0.55);
+	}
+	.cell.current-match {
+		background: rgba(232, 180, 94, 0.38) !important;
+		outline: 2px solid var(--warn);
+		outline-offset: -2px;
 	}
 </style>

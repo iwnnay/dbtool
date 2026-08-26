@@ -1,125 +1,132 @@
 # dbtool
 
-A browser-based SQL Server, PostgreSQL, and SQLite query tool — a fast, dark,
-keyboard-first home for everyday database exploration. SQL Server continues to
-run with **your Windows identity** (Integrated Security).
+A browser-based, dark, keyboard-first query tool for SQL Server, PostgreSQL,
+and SQLite. SQL Server runs under your Windows identity; PostgreSQL credentials
+come from environment variables; SQLite databases are opened directly from
+their files.
 
-## Run
+For a guided tour of connections, querying, result controls, saved data, and
+troubleshooting, see [docs/onboarding.md](docs/onboarding.md).
 
-```bash
+## Prerequisites
+
+- Windows 10/11 or Windows Server
+- Node.js 24.x and npm (`node:sqlite` is used by the SQLite worker)
+- Git and SSH access to the private `Wilmington-Health/nacelle-svelte`
+  repository for a cold install
+- PowerShell 7 (`pwsh`) for SQL Server connections
+- Network and database permissions for the databases you intend to use
+
+## Quick start
+
+From PowerShell:
+
+```powershell
+Copy-Item .env.example .env
 npm install
-npm run dev        # http://localhost:9999
+npm run check
+npm test
+npm run dev
 ```
 
-Production: `npm run build` then `node build`.
+Open <http://localhost:9999>. Change `PORT` or `HOST` in `.env` if needed.
 
-## Features
+`npm install` fetches the pinned nacelle dependency over Git SSH. If that step
+fails, verify `git` is installed and `ssh -T git@github.com` succeeds for an
+account with repository access.
 
-- **Explorer tree** — connections → databases → schemas → tables/views → columns
-  (types, PK 🔑, `•` = NOT NULL). Double-click a database to point the current
-  sheet at it; double-click a table to insert `SELECT TOP (100)`.
-- **Table search** — instant, client-side, across every database you've expanded
-  (built for 9000-table databases; prefix matches rank first).
-- **Query sheets** — tabbed, each with its **own live connection** (temp tables
-  and session state survive between runs, like an SSMS tab). Auto-saved on every
-  run + debounced while typing, to `data/sheets/`. Reopen the app, they're back.
-- **Ctrl+Enter** runs the statement under the cursor (or the selection).
-  **Ctrl+Shift+Enter** runs the whole sheet. `GO` batches supported.
-- **Results** — virtualized grid (10k-row display cap per set), multiple result
-  sets as tabs, Messages tab with PRINT output and errors (line numbers map back
-  to your sheet text). NULLs styled SSMS-style.
-- **Export** — Copy TSV, Copy TSV + headers, Export to Excel (.xlsx, one
-  worksheet per result set, real dates, frozen header). Double-click a cell to
-  copy just that value.
-- **Table context menu** (right-click) — Select top 1000 (new sheet), Insert
-  row (form-driven INSERT with Add Query / Run Query), Show columns, Show
-  properties.
-- **Server context menu** (right-click) — **Close connection** (everything on
-  that server, including the metadata connection), Refresh databases, Remove
-  server.
-- **Database context menu** (right-click) — New Query, **Ask** (LLM chat),
-  **Ignore list**, Close connections to this database, Show properties.
-  Closed connections reconnect transparently on the next run.
-- **Ignore lists** — per-database table masks (ported from aco_db_discovery's
-  production-usage mask; NGDev has ~9,500 tables but only the few thousand with
-  data matter). Ignored tables disappear from the tree, search, autocomplete,
-  datamaps and Ask — but still open when named explicitly (columns/insert).
-  Manage from the database menu (one `schema.table` or bare name per line), or
-  import an allowlist TSV (`TableName` + `EstimatedRowCount` exported from
-  production, e.g. aco_db_discovery's `data/ngdev_table_info.tsv`) — tables with
-  no production rows get ignored. Quick-ignore any table from its own
-  right-click menu. Stored in `data/ignore/` (gitignored).
+## Production build
 
-## Ask (datamap-grounded LLM chat)
+```powershell
+npm ci
+npm run db:migrate
+npm run build
+$env:HOST = '127.0.0.1'
+$env:PORT = '9999'
+npm start
+```
 
-Right-click a database → **Ask** to chat with local Ollama about it in plain
-English ("find all patients with a last name starting with zzz and an ICD code
-of I50.9") and get runnable SQL in the active connection's dialect with an *Add to sheet* button.
-
-Grounding comes from a per-database **datamap** in `data/datamaps/` (gitignored):
-a full schema snapshot (every table: row count, PK, and columns) where each table
-is fingerprinted, plus one-line table descriptions
-written by Ollama in batches (largest `DATAMAP_DESCRIBE_LIMIT` tables, since the
-tail of a 9000-table DB is empty templates). Rebuilds are incremental: only
-new/schema-changed tables are re-described. The Ask prompt packs
-question-relevant tables first, then the largest, capped at ~70k chars — so even
-huge databases stay grounded. Model/URL config in `.env` (see `.env.example`);
-the model auto-detects from installed Ollama models if unset.
+Run the process under the Windows account whose integrated identity should be
+used for SQL Server. Put deployment values in the service environment; do not
+commit `.env` or database passwords.
 
 ## Database connections
 
 Click **+** in Database Explorer and choose an engine:
 
-- **SQL Server** uses the persistent PowerShell/.NET SqlClient bridge and Windows
+- **SQL Server** uses a persistent PowerShell/.NET SqlClient bridge with Windows
   integrated authentication.
-- **PostgreSQL** uses a persistent `pg` client per sheet. Supply host, port, user,
-  initial database and optional TLS. For passwords, enter the **name** of an
-  environment variable (for example `DBTOOL_PG_PASSWORD`) and set that variable
-  before starting dbtool; password values are never stored in `data/config.json`.
-- **SQLite** takes a database file path and can be opened read-only. It runs in a
-  separate persistent Node worker, preserving per-sheet temp/session state and
-  allowing cancellation without blocking the web process.
+- **PostgreSQL** uses a persistent `pg` client per sheet. Enter the name of a
+  password environment variable (for example `DBTOOL_PG_PASSWORD`) and set its
+  value before dbtool starts. Password values are not stored in
+  `data/config.json`.
+- **SQLite** takes a database file path and supports read-only mode. It uses a
+  persistent Node worker so temporary tables and session state survive between
+  runs in a sheet.
 
-Existing configs containing the original `servers: string[]` shape migrate
-automatically. Existing sheets retain their connection because the old server
-name becomes the stable connection ID.
+Existing configs with the original `servers: string[]` shape migrate
+automatically. Existing connection IDs remain stable.
 
-Generated SQL, identifier quoting, editor highlighting, metadata, row editing,
-datamaps, and Ask prompts follow the selected engine. Engine-specific features
-are shown only where they exist (SQLite, for example, has no procedures).
+## Features
 
-## How Windows Auth works
+- Explorer tree for connections, databases, schemas, tables, views, procedures,
+  and columns
+- Tabbed, auto-saved query sheets with a persistent connection per sheet
+- `Ctrl+Enter` to run the selection or current statement;
+  `Ctrl+Shift+Enter` to run the whole sheet; SQL Server `GO` batches supported
+- Virtualized results with a 10,000-row display cap per result set
+- Full loaded-result search: click the grid, press `Ctrl+F`, then use `Enter` and
+  `Shift+Enter` to move through matches
+- Tri-state column sorting: click for ascending, descending, then unsorted;
+  `Shift+click` builds a prioritized multi-column sort
+- Multiple result-set tabs, server messages, mapped errors, query history,
+  safe row deletion, TSV copy, and Excel export
+- Dialect-aware generated SQL, identifier quoting, editor completion, metadata,
+  datamaps, and Ask prompts
+- Per-database ignore lists for hiding unused tables from the explorer, search,
+  autocomplete, datamaps, and Ask
 
-Browsers can't speak TDS, and on Node 24 the native SQL drivers are broken for
-passwordless Windows auth (`msnodesqlv8` hangs; `tedious` can't do it — see
-`../aco_db_discovery`, where this was first fought). So the SvelteKit server
-spawns **persistent PowerShell bridge processes** (`scripts/sql-bridge.ps1`):
-.NET `SqlClient` with `Integrated Security=True`, held open, speaking JSON-lines
-over stdin/stdout. One bridge per sheet + one metadata bridge per server.
-Cancel = kill the bridge; the next run respawns it transparently.
+## Ask and datamaps
 
-## Layout
+Right-click a database and choose **Ask** to generate dialect-appropriate SQL
+from a grounded schema snapshot. Datamaps are stored in `data/datamaps/` and are
+rebuilt incrementally. Configure Ollama or OpenAI in `.env`; local defaults and
+available variables are described in `.env.example`.
 
+## Development commands
+
+```powershell
+npm run dev          # development server with hot reload
+npm run check        # Svelte and TypeScript checks
+npm test             # Vitest suite plus HTML/text coverage
+npm run test:watch   # focused test development
+npm run build        # production bundle
+npm run preview      # preview the production bundle
+npm run db:migrate   # apply local data migrations
 ```
-scripts/sql-bridge.ps1            the persistent SQL worker (auth lives here)
-scripts/db-worker.mjs             persistent PostgreSQL/SQLite worker
-src/lib/server/db/bridgeManager.ts  spawn/queue/timeout/cancel of bridges
-src/lib/server/db/meta.ts           catalog queries for the explorer tree
+
+The HTML coverage report is written to `coverage/index.html`.
+
+## Architecture
+
+```text
+scripts/sql-bridge.ps1              persistent SQL Server worker
+scripts/db-worker.mjs               persistent PostgreSQL/SQLite worker
+src/lib/server/db/bridgeManager.ts  bridge lifecycle, queueing, timeout, cancel
+src/lib/server/db/meta.ts           SQL Server catalog queries
 src/lib/server/db/dialectMeta.ts    PostgreSQL/SQLite catalog adapters
-src/lib/server/store.ts             ./data persistence (connections, sheets)
-src/lib/sql/split.ts                GO/; statement splitter (shared, tested)
-src/lib/client/                     UI: Explorer, Editor (CodeMirror 6), Grid…
-src/routes/api/db/*                 servers/databases/objects/columns/run/cancel
-src/routes/api/sheets/*             sheet CRUD
-data/                               (gitignored) config.json + sheets/*.json
+src/lib/server/store.ts             connection and sheet persistence
+src/lib/sql/split.ts                GO/semicolon statement splitter
+src/lib/client/                     explorer, editor, grid, dialogs
+src/routes/api/db/                  database API endpoints
+src/routes/api/sheets/              sheet CRUD endpoints
+data/                               gitignored local configuration and content
 ```
 
-Registered connections live in `data/config.json` — edit there or use the `+` button
-in the explorer.
+Browsers cannot use the current Windows identity directly for TDS. The server
+therefore keeps a `.NET SqlClient` process open per SQL Server sheet, communicates
+with it using JSON lines, and restarts it transparently after cancellation.
 
-## nacelle
-
-This app was generated from the nacelle template; the LangGraph flow machinery
-(`/debug`, `src/lib/server/flows`, `/api/ask`) is intact and unused for now —
-earmarked for bringing over the AI features from `../aco_db_discovery`
-(schema graph, datamap chat) as a future phase.
+Registered connections live in `data/config.json`; query sheets, ignore lists,
+datamaps, history, and logs also live under gitignored local paths. Back up the
+`data/` directory if those artifacts matter to your workflow.

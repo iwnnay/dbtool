@@ -36,7 +36,11 @@
 			title: 'Results grid',
 			shortcuts: [
 				{ keys: ['Click', 'drag'], what: 'Select a block of cells · Shift+Click extends the block' },
-				{ keys: ['Click'], what: 'Row number selects the row · column header selects the column' },
+				{ keys: ['Click'], what: 'Column header cycles ascending, descending, and original order' },
+				{ keys: ['Shift', 'Click'], what: 'Column header adds or changes a multi-column sort' },
+				{ keys: ['Ctrl', 'F'], what: 'Search every loaded row and column in the focused result grid' },
+				{ keys: ['Enter'], what: 'Next search match · Shift+Enter moves to the previous match' },
+				{ keys: ['Click'], what: 'Row number selects the row · right-click a header to select its column' },
 				{ keys: ['Ctrl', 'A'], what: 'Select the whole result set' },
 				{ keys: ['Ctrl', 'C'], what: 'Copy the selection as TSV' },
 				{ keys: ['Right-click'], what: 'Copy the selection, with or without headers' },
