@@ -56,10 +56,10 @@ Click **+** in Database Explorer and choose an engine:
 
 - **SQL Server** uses a persistent PowerShell/.NET SqlClient bridge with Windows
   integrated authentication.
-- **PostgreSQL** uses a persistent `pg` client per sheet. Enter the name of a
-  password environment variable (for example `DBTOOL_PG_PASSWORD`) and set its
-  value before dbtool starts. Password values are not stored in
-  `data/config.json`.
+- **PostgreSQL** uses a persistent `pg` client per sheet. Enter the password in
+  the connection form. It is stored locally in plaintext in `data/config.json`.
+  Leave it blank for a passwordless connection or PostgreSQL environment
+  defaults. Existing profiles that use `passwordEnv` remain supported.
 - **SQLite** takes a database file path and supports read-only mode. It uses a
   persistent Node worker so temporary tables and session state survive between
   runs in a sheet.

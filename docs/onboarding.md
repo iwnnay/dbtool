@@ -41,17 +41,11 @@ and session settings. Cancellation ends that bridge and the next run reconnects.
 
 ### PostgreSQL
 
-Enter host, port, user, initial database, and TLS preference. In the password
-field enter an environment variable **name**, not its value. Set it before
-starting dbtool:
-
-```powershell
-$env:DBTOOL_PG_PASSWORD = 'your-password-from-a-secret-store'
-npm run dev
-```
-
-Only `DBTOOL_PG_PASSWORD` is saved in the profile; its value is not written to
-`data/config.json`. A launcher or service must supply it on future starts.
+Enter host, port, user, initial database, password, and TLS preference. The
+password is stored locally in plaintext in `data/config.json` and is reused on
+future starts. Leave it blank for a passwordless connection or PostgreSQL
+environment defaults. Existing profiles that name a `passwordEnv` variable
+remain supported for compatibility.
 
 ### SQLite
 
@@ -112,15 +106,14 @@ question-relevant and large tables first in the prompt.
 
 Local gitignored content includes:
 
-- `data/config.json`: connection profiles, excluding password values
+- `data/config.json`: connection profiles, including plaintext PostgreSQL passwords
 - `data/sheets/`: query sheets
 - `data/ignore/`: ignore lists
 - `data/datamaps/`: Ask context
 - local history and optional logs
 
-Back up `data/` to preserve the workspace. Do not commit `.env`, passwords,
-sensitive database files, or exports. Use a secret manager or service environment
-for production credentials.
+Back up `data/` to preserve the workspace. Do not commit `data/config.json`,
+`.env`, passwords, sensitive database files, or exports.
 
 ## 7. Production operation
 
@@ -133,9 +126,9 @@ $env:PORT = '9999'
 npm start
 ```
 
-Run under the intended Windows service identity for SQL Server and supply
-PostgreSQL password variables to that process. Persist `data/` separately from
-disposable build output.
+Run under the intended Windows service identity for SQL Server. Persist `data/`
+separately from disposable build output and restrict access because PostgreSQL
+passwords in `data/config.json` are plaintext.
 
 ## 8. Troubleshooting
 
@@ -151,8 +144,9 @@ and network access. Closing a failed connection and rerunning starts a new bridg
 
 ### PostgreSQL reports a missing password
 
-Set the environment variable named in the profile **before** starting dbtool,
-then restart it. Check host, port, database, TLS, and network access separately.
+Edit or recreate the connection with its password. For a legacy profile using
+`passwordEnv`, set that environment variable before starting dbtool. Check host,
+port, database, TLS, and network access separately.
 
 ### SQLite cannot open or modify a file
 

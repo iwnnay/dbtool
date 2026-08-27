@@ -25,7 +25,9 @@ export interface PostgresProfile extends ConnectionProfileBase {
 	user: string;
 	/** Optional initial database used while listing databases. */
 	database?: string;
-	/** Name of an environment variable containing the password. */
+	/** Stored in plaintext in data/config.json. */
+	password?: string;
+	/** Legacy profile support; new connections store `password` directly. */
 	passwordEnv?: string;
 	ssl?: boolean;
 }

@@ -37,7 +37,7 @@ async function connect(profile, database) {
 			host: profile.host,
 			port: profile.port || 5432,
 			user: profile.user || undefined,
-			password: profile.passwordEnv ? process.env[profile.passwordEnv] : undefined,
+			password: profile.password ?? (profile.passwordEnv ? process.env[profile.passwordEnv] : undefined),
 			database: database || profile.database || 'postgres',
 			ssl: profile.ssl ? { rejectUnauthorized: false } : undefined,
 			application_name: 'dbtool',

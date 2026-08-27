@@ -11,7 +11,7 @@
 	let port = $state('5432');
 	let user = $state('');
 	let database = $state('postgres');
-	let passwordEnv = $state('');
+	let password = $state('');
 	let ssl = $state(false);
 	let path = $state('');
 	let readOnly = $state(false);
@@ -30,7 +30,7 @@
 				await app.addConnection({ type, name: displayName, server: server.trim() });
 			} else if (type === 'postgres') {
 				if (!host.trim()) throw new Error('PostgreSQL host is required.');
-				await app.addConnection({ type, name: displayName, host: host.trim(), port: Number(port) || 5432, user: user.trim(), database: database.trim() || 'postgres', passwordEnv: passwordEnv.trim() || undefined, ssl });
+				await app.addConnection({ type, name: displayName, host: host.trim(), port: Number(port) || 5432, user: user.trim(), database: database.trim() || 'postgres', password: password || undefined, ssl });
 			} else {
 				if (!path.trim()) throw new Error('SQLite file path is required.');
 				await app.addConnection({ type, name: displayName, path: path.trim(), readOnly });
@@ -56,9 +56,9 @@
 		{:else if type === 'postgres'}
 			<div class="row"><label>Host <input bind:value={host} /></label><label class="port">Port <input bind:value={port} inputmode="numeric" /></label></div>
 			<div class="row"><label>User <input bind:value={user} /></label><label>Initial database <input bind:value={database} /></label></div>
-			<label>Password environment variable <input bind:value={passwordEnv} placeholder="e.g. DBTOOL_PG_PASSWORD" /></label>
+			<label>Password <input type="password" bind:value={password} autocomplete="new-password" /></label>
 			<label class="check"><input type="checkbox" bind:checked={ssl} /> Use TLS</label>
-			<p>Passwords are not stored in dbtool. Leave this blank to use PostgreSQL/PG environment defaults or a passwordless local connection.</p>
+			<p>This password is stored locally in plaintext in data/config.json. Leave it blank for a passwordless connection or PostgreSQL environment defaults.</p>
 		{:else}
 			<label>SQLite file path <input bind:value={path} placeholder="C:\data\application.db" /></label>
 			<label class="check"><input type="checkbox" bind:checked={readOnly} /> Open read-only</label>
