@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
 	searchColumns: vi.fn(), objectDefinition: vi.fn(), dbProperties: vi.fn(),
 	loadIgnoreList: vi.fn(), saveIgnoreList: vi.fn(), ignoreSet: vi.fn(), isIgnored: vi.fn(),
 	listRuns: vi.fn(), countRuns: vi.fn(), clearRuns: vi.fn(),
-	killBridgesFor: vi.fn(), killBridge: vi.fn(),
+	killBridgesFor: vi.fn(), killBridge: vi.fn(), testConnection: vi.fn(),
 	loadDatamap: vi.fn(), jobStatus: vi.fn(), startGenerate: vi.fn(), checkStale: vi.fn(),
 	askModelStatus: vi.fn()
 }));
@@ -32,7 +32,8 @@ vi.mock('$lib/server/history', () => ({
 	listRuns: mocks.listRuns, countRuns: mocks.countRuns, clearRuns: mocks.clearRuns
 }));
 vi.mock('$lib/server/db/bridgeManager', () => ({
-	killBridgesFor: mocks.killBridgesFor, killBridge: mocks.killBridge
+	killBridgesFor: mocks.killBridgesFor, killBridge: mocks.killBridge,
+	testConnection: mocks.testConnection
 }));
 vi.mock('$lib/server/db/datamap', () => ({
 	loadDatamap: mocks.loadDatamap, jobStatus: mocks.jobStatus,
@@ -89,6 +90,7 @@ beforeEach(() => {
 	mocks.clearRuns.mockReturnValue(1);
 	mocks.killBridgesFor.mockReturnValue(2);
 	mocks.killBridge.mockReturnValue(true);
+	mocks.testConnection.mockResolvedValue(undefined);
 	mocks.loadDatamap.mockReturnValue({ generatedAt: 'today', tables: { 'dbo.a': { description: 'A' }, 'dbo.b': {} } });
 	mocks.jobStatus.mockReturnValue({ running: false });
 	mocks.startGenerate.mockReturnValue({ running: true });
@@ -100,7 +102,9 @@ describe('server and sheet endpoints', () => {
 	it('handles connection listing, legacy creation, typed creation, errors, and deletion', async () => {
 		expect(await data(await servers.GET(event()))).toEqual({ connections: [{ id: 's' }] });
 		expect(await data(await servers.POST(event('http://test/', { name: ' legacy ' })))).toEqual({ connections: [{ id: 'legacy' }] });
+		expect(mocks.testConnection).toHaveBeenCalledWith({ type: 'mssql', name: 'legacy', server: 'legacy' });
 		await servers.POST(event('http://test/', { name: 'sqlite', type: 'sqlite', path: 'a.db' }));
+		expect(mocks.testConnection).toHaveBeenCalledWith({ name: 'sqlite', type: 'sqlite', path: 'a.db' });
 		expect(mocks.addConnection).toHaveBeenCalled();
 		for (const body of [
 			{}, { name: 'x', type: 'bad' }, { name: 'x', type: 'mssql' },
@@ -108,6 +112,11 @@ describe('server and sheet endpoints', () => {
 		]) expect((await servers.POST(event('http://test/', body))).status).toBe(400);
 		mocks.addConnection.mockImplementationOnce(() => { throw new Error('duplicate'); });
 		expect(await data(await servers.POST(event('http://test/', { name: 'x', type: 'sqlite', path: 'x' })))).toEqual({ error: 'duplicate' });
+		mocks.testConnection.mockRejectedValueOnce(new Error('login failed'));
+		const failed = await servers.POST(event('http://test/', { name: 'x', type: 'postgres', host: 'db' }));
+		expect(failed.status).toBe(400);
+		expect(await data(failed)).toEqual({ error: 'Connection test failed: login failed' });
+		expect(mocks.addConnection).toHaveBeenCalledTimes(2);
 		expect((await servers.DELETE(event('http://test/'))).status).toBe(400);
 		expect(await data(await servers.DELETE(event('http://test/?name=legacy')))).toEqual({ connections: [] });
 	});

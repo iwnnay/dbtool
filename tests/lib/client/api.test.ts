@@ -14,6 +14,7 @@ beforeEach(() => {
 
 describe('database API client', () => {
 	it('maps every operation to its endpoint, method, and encoded parameters', async () => {
+		await api.files('C:\\data folder');
 		await api.connections();
 		await api.addConnection({ name: 'Local DB', type: 'sqlite', path: 'a.db' });
 		await api.removeConnection('a/b');
@@ -41,6 +42,7 @@ describe('database API client', () => {
 
 		const calls = fetchMock.mock.calls as [string, RequestInit][];
 		expect(calls.map(([url]) => url)).toEqual([
+			'/api/files?path=C%3A%5Cdata%20folder',
 			'/api/db/servers', '/api/db/servers', '/api/db/servers?id=a%2Fb',
 			'/api/db/databases?server=server%20one',
 			'/api/db/objects?server=s%261&database=db%20name&all=1',
@@ -55,11 +57,11 @@ describe('database API client', () => {
 			'/api/sheets/a/b', '/api/sheets/sheet-1'
 		]);
 		expect(calls.map(([, init]) => init.method ?? 'GET')).toEqual([
-			'GET', 'POST', 'DELETE', 'GET', 'GET', 'GET', 'GET', 'PUT', 'GET', 'GET',
+			'GET', 'GET', 'POST', 'DELETE', 'GET', 'GET', 'GET', 'GET', 'PUT', 'GET', 'GET',
 			'GET', 'POST', 'GET', 'GET', 'DELETE', 'GET', 'POST', 'POST', 'POST', 'GET',
 			'GET', 'POST', 'PUT', 'DELETE'
 		]);
-		expect(calls[7][1].body).toBe(JSON.stringify({ server: 's', database: 'd', ignored: ['audit.log'] }));
+		expect(calls[8][1].body).toBe(JSON.stringify({ server: 's', database: 'd', ignored: ['audit.log'] }));
 		expect(calls.every(([, init]) => init.headers && (init.headers as Record<string, string>)['content-type'] === 'application/json')).toBe(true);
 	});
 

@@ -113,6 +113,13 @@ export interface DbProperties {
 	logMb: number | null;
 }
 
+export interface FileEntry {
+	name: string;
+	path: string;
+	directory: boolean;
+	sqlite: boolean;
+}
+
 async function req<T>(url: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(url, {
 		headers: { 'content-type': 'application/json' },
@@ -124,6 +131,10 @@ async function req<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+	files: (path = '') =>
+		req<{ path: string; parent: string | null; roots: string[]; entries: FileEntry[] }>(
+			`/api/files${path ? `?path=${encodeURIComponent(path)}` : ''}`
+		),
 	connections: () => req<{ connections: ConnectionProfile[] }>('/api/db/servers'),
 	addConnection: (connection: ConnectionProfileInput & { id?: string }) =>
 		req<{ connections: ConnectionProfile[] }>('/api/db/servers', { method: 'POST', body: JSON.stringify(connection) }),

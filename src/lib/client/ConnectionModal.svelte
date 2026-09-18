@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Modal from './Modal.svelte';
+	import SqliteFilePicker from './SqliteFilePicker.svelte';
 	import { app } from './app.svelte';
 	import type { DatabaseEngine } from './api';
 
@@ -17,6 +18,7 @@
 	let readOnly = $state(false);
 	let error = $state('');
 	let saving = $state(false);
+	let findingFile = $state(false);
 
 	async function save() {
 		error = '';
@@ -46,6 +48,12 @@
 	}
 </script>
 
+{#if findingFile}
+	<SqliteFilePicker
+		initialPath={path}
+		onSelect={(selected) => { path = selected; findingFile = false; }}
+		onClose={() => (findingFile = false)} />
+{:else}
 <Modal title="Add database connection" width={520} {onClose}>
 	<div class="form">
 		<label>Database type<select bind:value={type}><option value="mssql">SQL Server</option><option value="postgres">PostgreSQL</option><option value="sqlite">SQLite file</option></select></label>
@@ -60,19 +68,21 @@
 			<label class="check"><input type="checkbox" bind:checked={ssl} /> Use TLS</label>
 			<p>This password is stored locally in plaintext in data/config.json. Leave it blank for a passwordless connection or PostgreSQL environment defaults.</p>
 		{:else}
-			<label>SQLite file path <input bind:value={path} placeholder="C:\data\application.db" /></label>
+			<label>SQLite file path <span class="path"><input bind:value={path} placeholder="C:\data\application.db" /><button type="button" onclick={() => (findingFile = true)}>Browse…</button></span></label>
 			<label class="check"><input type="checkbox" bind:checked={readOnly} /> Open read-only</label>
 		{/if}
 		{#if error}<div class="error">{error}</div>{/if}
-		<div class="actions"><button onclick={onClose}>Cancel</button><button class="primary" onclick={save} disabled={saving}>{saving ? 'Adding…' : 'Add connection'}</button></div>
+		<div class="actions"><button onclick={onClose}>Cancel</button><button class="primary" onclick={save} disabled={saving}>{saving ? 'Testing connection…' : 'Add connection'}</button></div>
 	</div>
 </Modal>
+{/if}
 
 <style>
 	.form { display: grid; gap: 12px; }
 	label { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
 	input, select { background: var(--bg); border: 1px solid var(--border); border-radius: 5px; color: var(--text); padding: 7px 9px; }
 	.row { display: flex; gap: 10px; } .row label { flex: 1; } .row .port { flex: 0 0 90px; }
+	.path { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
 	.check { display: flex; grid-template-columns: auto 1fr; flex-direction: row; align-items: center; gap: 7px; }
 	p { margin: -4px 0 0; color: var(--muted); font-size: 11.5px; }
 	.actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 5px; }

@@ -12,7 +12,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import path from 'node:path';
-import type { ConnectionProfile } from '$lib/db/types';
+import { defaultDatabase, type ConnectionProfile, type ConnectionProfileInput } from '$lib/db/types';
 import { getConnection } from '$lib/server/store';
 
 export interface SqlColumn {
@@ -190,6 +190,20 @@ export async function ensureBridge(key: string, server: string, database: string
 		await b.connect(profile, database);
 	}
 	return b;
+}
+
+/**
+ * Open and immediately close a connection without adding it to the bridge
+ * registry. This is used to validate new profiles before they are persisted.
+ */
+export async function testConnection(input: ConnectionProfileInput): Promise<void> {
+	const profile = { ...input, id: '__connection_test__' } as ConnectionProfile;
+	const bridge = new Bridge('__connection_test__');
+	try {
+		await bridge.connect(profile, defaultDatabase(profile));
+	} finally {
+		bridge.kill();
+	}
 }
 
 export function killBridge(key: string): boolean {

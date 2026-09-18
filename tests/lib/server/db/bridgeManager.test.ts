@@ -14,7 +14,7 @@ vi.mock('node:child_process', () => ({ spawn: mocks.spawn }));
 vi.mock('node:readline', () => ({ createInterface: mocks.createInterface }));
 vi.mock('$lib/server/store', () => ({ getConnection: mocks.getConnection }));
 
-import { Bridge, ensureBridge, killBridge, killBridgesFor } from '$lib/server/db/bridgeManager';
+import { Bridge, ensureBridge, killBridge, killBridgesFor, testConnection } from '$lib/server/db/bridgeManager';
 
 const mssql = { id: 'ms', name: 'MS', type: 'mssql' as const, server: 'host' };
 const sqlite = { id: 'lite', name: 'Lite', type: 'sqlite' as const, path: 'db.sqlite' };
@@ -116,6 +116,19 @@ describe('Bridge process protocol', () => {
 });
 
 describe('bridge registry', () => {
+	it('tests a profile against its default database and always closes the temporary bridge', async () => {
+		await testConnection({ name: 'Lite', type: 'sqlite', path: 'db.sqlite' });
+		expect(mocks.writes[0]).toEqual(expect.objectContaining({
+			op: 'connect', database: 'main',
+			profile: expect.objectContaining({ id: '__connection_test__', type: 'sqlite' })
+		}));
+		expect(mocks.kill).toHaveBeenCalledTimes(1);
+
+		mocks.response.mockReturnValueOnce({ ok: false, error: 'cannot open' });
+		await expect(testConnection({ name: 'Bad', type: 'sqlite', path: 'missing.sqlite' })).rejects.toThrow('cannot open');
+		expect(mocks.kill).toHaveBeenCalledTimes(2);
+	});
+
 	it('validates connections, reuses matching bridges, reconnects databases, and replaces changed engines', async () => {
 		mocks.getConnection.mockReturnValueOnce(null);
 		await expect(ensureBridge('registry-unknown', 'x', 'd')).rejects.toThrow('Unknown connection');

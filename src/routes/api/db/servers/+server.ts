@@ -2,6 +2,7 @@ import { json } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { listConnections, addConnection, addSqlServer, removeConnection } from '$lib/server/store';
 import type { ConnectionProfileInput } from '$lib/db/types';
+import { testConnection } from '$lib/server/db/bridgeManager';
 
 export const GET: RequestHandler = async () => json({ connections: listConnections() });
 
@@ -9,7 +10,13 @@ export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json().catch(() => ({}));
 	// Keep accepting the original {name} request for old clients.
 	if (body.type == null && typeof body.name === 'string' && body.name.trim()) {
-		return json({ connections: addSqlServer(body.name.trim()) });
+		const name = body.name.trim();
+		try {
+			await testConnection({ type: 'mssql', name, server: name });
+		} catch (error) {
+			return json({ error: `Connection test failed: ${(error as Error).message}` }, { status: 400 });
+		}
+		return json({ connections: addSqlServer(name) });
 	}
 	if (!body.name || !['mssql', 'postgres', 'sqlite'].includes(body.type)) {
 		return json({ error: 'name and valid type required' }, { status: 400 });
@@ -17,8 +24,14 @@ export const POST: RequestHandler = async ({ request }) => {
 	if (body.type === 'mssql' && !body.server) return json({ error: 'server required' }, { status: 400 });
 	if (body.type === 'postgres' && !body.host) return json({ error: 'host required' }, { status: 400 });
 	if (body.type === 'sqlite' && !body.path) return json({ error: 'path required' }, { status: 400 });
+	const input = body as ConnectionProfileInput;
 	try {
-		return json({ connections: addConnection(body as ConnectionProfileInput) });
+		await testConnection(input);
+	} catch (error) {
+		return json({ error: `Connection test failed: ${(error as Error).message}` }, { status: 400 });
+	}
+	try {
+		return json({ connections: addConnection(input) });
 	} catch (error) {
 		return json({ error: (error as Error).message }, { status: 400 });
 	}
